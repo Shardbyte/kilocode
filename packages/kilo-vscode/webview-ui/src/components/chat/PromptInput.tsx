@@ -1564,7 +1564,13 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     preEnhancePastes = paste.pastes().map((item) => item.text)
     enhanceCounter++
     setEnhancing(true)
-    vscode.postMessage({ type: "enhancePrompt", text: draft, requestId: `enhance-${draftKey()}-${enhanceCounter}` })
+    vscode.postMessage({
+      type: "enhancePrompt",
+      text: draft,
+      requestId: `enhance-${draftKey()}-${enhanceCounter}`,
+      source: "chat",
+      sessionID: session.currentSessionID(),
+    })
   }
 
   const insertSpeechText = (value: string) => {

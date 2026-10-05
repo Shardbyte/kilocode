@@ -9,6 +9,10 @@ export interface CommitMessageRequest {
   prompt?: string
   /** Target language for the generated commit message (e.g. "zh", "en"). Falls back to English. */
   language?: string
+  model?: { providerID: string; modelID: string }
+  accountContext?:
+    | { kind: "account"; providerID: "openai"; authMode: "chatgpt-oauth"; accountID: string }
+    | { kind: "legacy"; providerID: string }
 }
 
 export interface CommitMessageResponse {

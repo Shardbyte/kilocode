@@ -7,20 +7,18 @@ import {
   WorkspaceRoutingQuery,
 } from "@/server/routes/instance/httpapi/middleware/workspace-routing"
 import { described } from "@/server/routes/instance/httpapi/groups/metadata"
+import { ProviderV2 } from "@opencode-ai/core/provider"
+import { ModelV2 } from "@opencode-ai/core/model"
+import { CommitMessagePayload } from "@/kilocode/utility-generation-schema"
+export { CommitMessagePayload } from "@/kilocode/utility-generation-schema"
 
 const root = "/commit-message"
 
-export const CommitMessagePayload = Schema.Struct({
-  path: Schema.String.annotate({ description: "Workspace/repo path" }),
-  selectedFiles: Schema.optional(Schema.Array(Schema.String)).annotate({
-    description: "Optional subset of files to include",
-  }),
-  previousMessage: Schema.optional(Schema.String).annotate({
-    description: "Previously generated message — triggers regeneration with a different result",
-  }),
-  language: Schema.optional(Schema.String).annotate({
-    description: "Target language for the generated commit message (e.g. zh, en). Falls back to English.",
-  }),
+const PrepareResponse = Schema.Struct({
+  model: Schema.Struct({ providerID: ProviderV2.ID, modelID: ModelV2.ID }),
+  profilesEnabled: Schema.Boolean,
+  requiresAccountContext: Schema.Boolean,
+  allowedContextKinds: Schema.Array(Schema.Literals(["legacy", "account"])),
 })
 
 const CommitMessageResponse = Schema.Struct({
@@ -39,6 +37,15 @@ export class CommitMessageFailedError extends Schema.ErrorClass<CommitMessageFai
 export const CommitMessageApi = HttpApi.make("commit-message")
   .add(
     HttpApiGroup.make("commit-message")
+      .add(
+        HttpApiEndpoint.post("prepare", `${root}/prepare`, {
+          query: WorkspaceRoutingQuery,
+          success: described(PrepareResponse, "Resolved model and available account-context choices"),
+          error: [HttpApiError.BadRequest, CommitMessageFailedError],
+        }).annotateMerge(
+          OpenApi.annotations({ identifier: "commitMessage.prepare", summary: "Prepare commit message generation" }),
+        ),
+      )
       .add(
         HttpApiEndpoint.post("generate", root, {
           query: WorkspaceRoutingQuery,

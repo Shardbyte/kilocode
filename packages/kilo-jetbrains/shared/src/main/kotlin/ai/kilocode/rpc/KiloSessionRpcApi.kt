@@ -5,6 +5,8 @@ import ai.kilocode.rpc.dto.ChatEventDto
 import ai.kilocode.rpc.dto.CloudSessionListDto
 import ai.kilocode.rpc.dto.SessionBoardDto
 import ai.kilocode.rpc.dto.DiffFileDto
+import ai.kilocode.rpc.dto.EnhancePromptOptionsDto
+import ai.kilocode.rpc.dto.EnhancePromptRequestDto
 import ai.kilocode.rpc.dto.MessageWithPartsDto
 import ai.kilocode.rpc.dto.ModelSelectionDto
 import ai.kilocode.rpc.dto.PermissionAlwaysRulesDto
@@ -103,7 +105,9 @@ interface KiloSessionRpcApi : RemoteApi<Unit> {
     // ------ chat ------
 
     /** Rewrite a draft prompt using the configured small model. */
-    suspend fun enhancePrompt(directory: String, text: String): String
+    suspend fun prepareEnhancePrompt(directory: String): EnhancePromptOptionsDto
+
+    suspend fun enhancePrompt(directory: String, request: EnhancePromptRequestDto): String
 
     /** Send a prompt to a session (fire-and-forget). */
     suspend fun prompt(id: String, directory: String, prompt: PromptDto)

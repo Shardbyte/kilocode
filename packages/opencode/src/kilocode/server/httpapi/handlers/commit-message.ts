@@ -3,12 +3,26 @@ import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { EffectBridge } from "@/effect/bridge"
 import { InstanceHttpApi } from "@/server/routes/instance/httpapi/api"
 import { Config } from "@/config/config"
-import { generateCommitMessage, NoChangesError } from "@/kilocode/commit-message"
-import { CommitMessageFailedError, CommitMessageNoChangesError, CommitMessagePayload } from "../groups/commit-message"
+import { generateCommitMessage, NoChangesError, prepareCommitMessage } from "@/kilocode/commit-message"
+import { CommitMessageFailedError, CommitMessageNoChangesError } from "../groups/commit-message"
+import { CommitMessagePayload } from "@/kilocode/utility-generation-schema"
+import { UtilityAccount } from "@/kilocode/provider/utility-account"
 
 export const commitMessageHandlers = HttpApiBuilder.group(InstanceHttpApi, "commit-message", (handlers) =>
   Effect.gen(function* () {
     const config = yield* Config.Service
+
+    const prepare = Effect.fn("CommitMessageHttpApi.prepare")(() =>
+      EffectBridge.fromPromise(() => prepareCommitMessage()).pipe(
+        Effect.catchDefect((err) =>
+          Effect.fail(
+            new CommitMessageFailedError({
+              message: UtilityAccount.message(err, "Failed to prepare commit message generation"),
+            }),
+          ),
+        ),
+      ),
+    )
 
     const generate = Effect.fn("CommitMessageHttpApi.generate")(function* (ctx: {
       payload: typeof CommitMessagePayload.Type
@@ -22,6 +36,8 @@ export const commitMessageHandlers = HttpApiBuilder.group(InstanceHttpApi, "comm
           previousMessage: ctx.payload.previousMessage,
           prompt,
           language: ctx.payload.language,
+          model: ctx.payload.model,
+          accountContext: ctx.payload.accountContext,
         }),
       ).pipe(
         Effect.catchDefect((defect) => {
@@ -29,14 +45,15 @@ export const commitMessageHandlers = HttpApiBuilder.group(InstanceHttpApi, "comm
             return Effect.fail(new CommitMessageNoChangesError({ message: defect.message }))
           }
           if (defect instanceof Error) {
-            return Effect.fail(new CommitMessageFailedError({ message: defect.message }))
+            const message = UtilityAccount.message(defect, "Failed to generate commit message")
+            return Effect.fail(new CommitMessageFailedError({ message }))
           }
-          return Effect.die(defect)
+          return Effect.fail(new CommitMessageFailedError({ message: "Failed to generate commit message" }))
         }),
       )
       return { message: result.message }
     })
 
-    return handlers.handle("generate", generate)
+    return handlers.handle("prepare", prepare).handle("generate", generate)
   }),
 )

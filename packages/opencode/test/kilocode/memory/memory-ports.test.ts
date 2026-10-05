@@ -12,6 +12,7 @@ import type { Session } from "../../../src/session/session"
 import type { SessionSummary } from "../../../src/session/summary"
 import type { Snapshot } from "../../../src/snapshot"
 import { MemoryModel, MemorySession } from "../../../src/kilocode/memory/ports"
+import type { UtilityAccount } from "../../../src/kilocode/provider/utility-account"
 
 const pid = ProviderV2.ID.make("test")
 const mid = ModelV2.ID.make("fake-memory-model")
@@ -103,6 +104,20 @@ function provider(
     getSmallModel: () => Effect.succeed(mem),
     defaultModel: () => Effect.succeed({ providerID: pid, modelID: base.id }),
   }
+}
+
+function authority(model: Provider.Model, sessionID: string): Promise<UtilityAccount.Identity> {
+  return Promise.resolve(
+    Object.freeze({
+      id: `test:${sessionID}`,
+      operation: "memory",
+      directory: "/test",
+      providerID: model.providerID,
+      modelID: model.id,
+      sourceSessionID: sessionID,
+      mode: "outside",
+    }),
+  )
 }
 
 function text(sessionID: SessionID, messageID: MessageID, body: string): MessageV2.TextPart {
@@ -287,22 +302,100 @@ describe("memory ports", () => {
 
   test("model port resolves configured models and falls back to the session model", async () => {
     const seen: string[] = []
-    const port = MemoryModel.port({ provider: provider({ seen }) })
+    const port = MemoryModel.port({ provider: provider({ seen }), authority })
 
-    const configured = await Effect.runPromise(
-      port.resolve({ configured: "test/memory-config-model", session: ref }),
-    )
+    const configured = await Effect.runPromise(port.resolve({ configured: "test/memory-config-model", session: ref }))
     const fallback = await Effect.runPromise(port.resolve({ configured: "test/missing-memory-model", session: ref }))
 
     expect(configured.fallback).toBeUndefined()
     expect(fallback.fallback).toEqual({ reason: "model unavailable" })
-    expect(seen).toEqual(["memory-config-model", "fake-memory-model"])
+    expect(seen).toEqual([])
+  })
+
+  test("model port resolves authority from the real source session before language acquisition", async () => {
+    const order: string[] = []
+    const port = MemoryModel.port({
+      provider: {
+        ...provider({ seen: order }),
+        getLanguage: (model) => {
+          order.push(`language:${model.id}`)
+          return Effect.succeed(lang())
+        },
+      },
+      authority: async (model, sessionID) => {
+        order.push(`authority:${sessionID}`)
+        return authority(model, sessionID)
+      },
+    })
+    const resolved = await Effect.runPromise(port.resolve({ session: ref }))
+
+    await port.run({
+      handle: resolved.handle,
+      sessionID: "ses_source_memory",
+      system: "system",
+      prompt: "prompt",
+      timeoutMs: 30_000,
+    })
+
+    expect(order).toEqual(["authority:ses_source_memory", "language:fake-memory-model"])
+  })
+
+  test("model port defers OpenAI language-model resolution until the source session is available", async () => {
+    const seen: string[] = []
+    const port = MemoryModel.port({
+      provider: provider({ npm: "@ai-sdk/openai", providerID: ProviderV2.ID.make("openai"), seen }),
+      authority,
+    })
+
+    const result = await Effect.runPromise(
+      port.resolve({
+        session: { providerID: ProviderV2.ID.make("openai"), modelID: ModelV2.ID.make("fake-memory-model") },
+      }),
+    )
+
+    expect((result.handle as { source: Provider.Model }).source.providerID).toBe(ProviderV2.ID.make("openai"))
+    expect(seen).toEqual([])
+  })
+
+  test("model handle snapshots authority once across consolidation stages", async () => {
+    const seen: Array<string | undefined> = []
+    let selected = "account-A"
+    let reads = 0
+    const port = MemoryModel.port({
+      provider: {
+        ...provider({}),
+        getLanguage: (_model, profileID) => {
+          seen.push(profileID)
+          return Effect.succeed(lang())
+        },
+      },
+      authority: async (model, sessionID) => {
+        reads++
+        return { ...(await authority(model, sessionID)), mode: "profile", profileID: selected }
+      },
+    })
+    const resolved = await Effect.runPromise(port.resolve({ session: ref }))
+    const input = {
+      handle: resolved.handle,
+      sessionID: "ses_memory",
+      system: "system",
+      prompt: "prompt",
+      timeoutMs: 30_000,
+    }
+    await port.run(input)
+    selected = "account-B"
+    await port.run(input)
+    expect(reads).toBe(1)
+    expect(seen).toEqual(["account-A", "account-A"])
+    await expect(port.run({ ...input, sessionID: "ses_other" })).rejects.toThrow("Memory utility generation failed")
+    expect(seen).toHaveLength(2)
   })
 
   test("model port sends x-opencode-session for opencode-managed memory models", async () => {
     const calls: unknown[] = []
     const port = MemoryModel.port({
       provider: provider({ providerID: ProviderV2.ID.make("opencode"), calls }),
+      authority,
     })
     const resolved = await Effect.runPromise(port.resolve({ session: ref }))
 
@@ -320,7 +413,7 @@ describe("memory ports", () => {
 
   test("model port omits opencode headers for non-opencode memory models", async () => {
     const calls: unknown[] = []
-    const port = MemoryModel.port({ provider: provider({ calls }) })
+    const port = MemoryModel.port({ provider: provider({ calls }), authority })
     const resolved = await Effect.runPromise(port.resolve({ session: ref }))
 
     await port.run({
@@ -337,10 +430,16 @@ describe("memory ports", () => {
 
   test("model port asks OpenAI-compatible providers for a non-streaming JSON response", async () => {
     const calls: unknown[] = []
-    const port = MemoryModel.port({ provider: provider({ npm: "@ai-sdk/openai-compatible", calls }) })
+    const port = MemoryModel.port({ provider: provider({ npm: "@ai-sdk/openai-compatible", calls }), authority })
     const resolved = await Effect.runPromise(port.resolve({ session: ref }))
 
-    await port.run({ handle: resolved.handle, sessionID: "ses_test", system: "system", prompt: "prompt", timeoutMs: 30_000 })
+    await port.run({
+      handle: resolved.handle,
+      sessionID: "ses_test",
+      system: "system",
+      prompt: "prompt",
+      timeoutMs: 30_000,
+    })
 
     const opts = calls[0] as { providerOptions?: Record<string, { stream?: boolean }> }
     expect(opts.providerOptions?.test?.stream).toBe(false)
@@ -354,10 +453,17 @@ describe("memory ports", () => {
         providerID: ProviderV2.ID.make("openai"),
         calls,
       }),
+      authority,
     })
     const resolved = await Effect.runPromise(port.resolve({ session: ref }))
 
-    await port.run({ handle: resolved.handle, sessionID: "ses_test", system: "system", prompt: "prompt", timeoutMs: 30_000 })
+    await port.run({
+      handle: resolved.handle,
+      sessionID: "ses_test",
+      system: "system",
+      prompt: "prompt",
+      timeoutMs: 30_000,
+    })
 
     const opts = calls[0] as { providerOptions?: Record<string, { stream?: boolean }> }
     expect(opts.providerOptions?.openai?.stream).toBe(false)
@@ -406,6 +512,7 @@ describe("memory ports", () => {
           ...provider({ npm: "@ai-sdk/openai-compatible" }),
           getLanguage: () => Effect.succeed(sdk.languageModel("fake-memory-model")),
         },
+        authority,
       })
       const resolved = await Effect.runPromise(port.resolve({ session: ref }))
       const result = await port.run({
@@ -434,10 +541,16 @@ describe("memory ports", () => {
       responseBody: '{"error":"temporarily unavailable"}',
       isRetryable: true,
     })
-    const port = MemoryModel.port({ provider: provider({ outputs: [err, "{}"], calls }) })
+    const port = MemoryModel.port({ provider: provider({ outputs: [err, "{}"], calls }), authority })
     const resolved = await Effect.runPromise(port.resolve({ session: ref }))
 
-    await port.run({ handle: resolved.handle, sessionID: "ses_test", system: "system", prompt: "prompt", timeoutMs: 30_000 })
+    await port.run({
+      handle: resolved.handle,
+      sessionID: "ses_test",
+      system: "system",
+      prompt: "prompt",
+      timeoutMs: 30_000,
+    })
 
     expect(calls).toHaveLength(2)
     const opts = calls[0] as { providerOptions?: Record<string, { stream?: boolean }> }
@@ -445,7 +558,7 @@ describe("memory ports", () => {
   })
 
   test("model port emits a structured timeout error", async () => {
-    const port = MemoryModel.port({ provider: provider({ hang: true }) })
+    const port = MemoryModel.port({ provider: provider({ hang: true }), authority })
     const resolved = await Effect.runPromise(port.resolve({ session: ref }))
 
     await expect(
@@ -474,7 +587,7 @@ describe("memory ports", () => {
     }) as typeof clearTimeout
 
     try {
-      const port = MemoryModel.port({ provider: provider({ outputs: ["{}"] }) })
+      const port = MemoryModel.port({ provider: provider({ outputs: ["{}"] }), authority })
       const resolved = await Effect.runPromise(port.resolve({ session: ref }))
 
       await port.run({

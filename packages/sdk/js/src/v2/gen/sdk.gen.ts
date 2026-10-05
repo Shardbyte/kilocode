@@ -46,6 +46,8 @@ import type {
   CommandListResponses,
   CommitMessageGenerateErrors,
   CommitMessageGenerateResponses,
+  CommitMessagePrepareErrors,
+  CommitMessagePrepareResponses,
   Config as Config4,
   ConfigEffectiveErrors,
   ConfigEffectiveResponses,
@@ -73,6 +75,8 @@ import type {
   ConfigWarningsResponses,
   EnhancePromptEnhanceErrors,
   EnhancePromptEnhanceResponses,
+  EnhancePromptPrepareErrors,
+  EnhancePromptPrepareResponses,
   EventSubscribeResponse,
   EventSubscribeResponses,
   EventTuiCommandExecute2,
@@ -6548,6 +6552,38 @@ export class BranchName extends HeyApiClient {
 
 export class CommitMessage extends HeyApiClient {
   /**
+   * Prepare commit message generation
+   */
+  public prepare<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      CommitMessagePrepareResponses,
+      CommitMessagePrepareErrors,
+      ThrowOnError
+    >({
+      url: "/commit-message/prepare",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Generate commit message
    *
    * Generate a commit message using AI based on the current git diff.
@@ -6560,6 +6596,21 @@ export class CommitMessage extends HeyApiClient {
       selectedFiles?: Array<string>
       previousMessage?: string
       language?: string
+      model?: {
+        providerID: string
+        modelID: string
+      }
+      accountContext?:
+        | {
+            kind: "account"
+            providerID: "openai"
+            authMode: "chatgpt-oauth"
+            accountID: string
+          }
+        | {
+            kind: "legacy"
+            providerID: string
+          }
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -6574,6 +6625,8 @@ export class CommitMessage extends HeyApiClient {
             { in: "body", key: "selectedFiles" },
             { in: "body", key: "previousMessage" },
             { in: "body", key: "language" },
+            { in: "body", key: "model" },
+            { in: "body", key: "accountContext" },
           ],
         },
       ],
@@ -6597,6 +6650,38 @@ export class CommitMessage extends HeyApiClient {
 
 export class EnhancePrompt extends HeyApiClient {
   /**
+   * Prepare prompt enhancement
+   */
+  public prepare<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      EnhancePromptPrepareResponses,
+      EnhancePromptPrepareErrors,
+      ThrowOnError
+    >({
+      url: "/enhance-prompt/prepare",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Enhance prompt
    *
    * Rewrite a user's draft prompt into a clearer, more specific, and more effective prompt.
@@ -6606,6 +6691,25 @@ export class EnhancePrompt extends HeyApiClient {
       directory?: string
       workspace?: string
       text: string
+      model?: {
+        providerID: string
+        modelID: string
+      }
+      accountContext?:
+        | {
+            kind: "account"
+            providerID: "openai"
+            authMode: "chatgpt-oauth"
+            accountID: string
+          }
+        | {
+            kind: "legacy"
+            providerID: string
+          }
+        | {
+            kind: "session"
+            sourceSessionID: string
+          }
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -6617,6 +6721,8 @@ export class EnhancePrompt extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "body", key: "text" },
+            { in: "body", key: "model" },
+            { in: "body", key: "accountContext" },
           ],
         },
       ],

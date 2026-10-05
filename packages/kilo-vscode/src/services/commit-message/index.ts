@@ -1,7 +1,8 @@
 import * as vscode from "vscode"
 import type { KiloConnectionService } from "../cli-backend/connection-service"
-import { getErrorMessage } from "../../kilo-provider-utils"
 import { getCommitMessageLanguage } from "../i18n"
+import { accountDTOs } from "../../provider-accounts"
+import { selectUtilityAccount } from "../utility-account"
 
 let lastGeneratedMessage: string | undefined
 let lastWorkspacePath: string | undefined
@@ -25,6 +26,7 @@ function findRepository(repositories: GitRepository[], arg?: vscode.SourceContro
     const target = arg.rootUri.fsPath
     const match = repositories.find((r) => r.rootUri.fsPath === target)
     if (match) return match
+    return undefined
   }
   return repositories[0]
 }
@@ -58,13 +60,39 @@ export function registerCommitMessageService(
       let client
       try {
         client = await connectionService.getClientAsync(path)
-      } catch (err) {
-        console.error("[Kilo New] Failed to connect to Kilo backend:", err)
+      } catch {
         vscode.window.showErrorMessage("Failed to connect to Kilo backend. Please try again.")
         return
       }
 
       const previousMessage = lastWorkspacePath === path ? lastGeneratedMessage : undefined
+
+      const prepared = await client.commitMessage
+        .prepare({ directory: path }, { throwOnError: true })
+        .catch(() => undefined)
+      if (!prepared?.data) {
+        vscode.window.showErrorMessage("Could not prepare commit message generation. Please try again.")
+        return
+      }
+      const plan = prepared.data
+      const accountContext = plan.requiresAccountContext
+        ? await (async () => {
+            const listed = await client.providerAccounts
+              .list({ provider: "openai", directory: path })
+              .catch(() => undefined)
+            return selectUtilityAccount(accountDTOs(listed?.data?.accounts), plan.allowedContextKinds)
+          })()
+        : undefined
+      if (plan.requiresAccountContext && !accountContext) return
+      try {
+        if (connectionService.getClient() !== client) {
+          vscode.window.showErrorMessage("The Kilo backend reconnected. Retry generation to confirm account authority.")
+          return
+        }
+      } catch {
+        vscode.window.showErrorMessage("The Kilo backend reconnected. Retry generation to confirm account authority.")
+        return
+      }
 
       let userCancelled = false
       let timedOut = false
@@ -95,7 +123,14 @@ export function registerCommitMessageService(
 
             try {
               const { data } = await client.commitMessage.generate(
-                { path, selectedFiles: undefined, previousMessage, language: getCommitMessageLanguage(vscode) },
+                {
+                  path,
+                  selectedFiles: undefined,
+                  previousMessage,
+                  language: getCommitMessageLanguage(vscode),
+                  model: plan.model,
+                  ...(accountContext ? { accountContext } : {}),
+                },
                 { throwOnError: true, signal: controller.signal },
               )
               const message = data.message
@@ -108,7 +143,7 @@ export function registerCommitMessageService(
             }
           },
         )
-        .then(undefined, (error: unknown) => {
+        .then(undefined, () => {
           if (userCancelled) {
             console.log("[Kilo New] Commit message generation was cancelled by user")
             return
@@ -118,9 +153,8 @@ export function registerCommitMessageService(
             vscode.window.showErrorMessage("Commit message generation timed out. Please try again.")
             return
           }
-          const msg = getErrorMessage(error)
-          console.error("[Kilo New] Failed to generate commit message:", msg)
-          vscode.window.showErrorMessage(msg || "Failed to generate commit message. Please try again.")
+          console.error("[Kilo New] Failed to generate commit message")
+          vscode.window.showErrorMessage("Could not generate commit message. Check account selection and retry.")
         })
     },
   )

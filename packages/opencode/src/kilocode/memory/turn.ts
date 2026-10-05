@@ -13,6 +13,8 @@ import type { SessionID } from "@/session/schema"
 import type { SessionSummary } from "@/session/summary"
 import { KiloSession } from "@/kilocode/session"
 import { KiloSessionPrompt } from "@/kilocode/session/prompt"
+import { UtilityAccount } from "@/kilocode/provider/utility-account"
+import type { UtilityAccount as UtilityAccountType } from "@/kilocode/provider/utility-account"
 import { MemoryModel, MemorySession } from "./ports"
 
 const log = Log.create({ service: "memory.lifecycle" })
@@ -45,7 +47,22 @@ export namespace MemoryTurn {
       sessionID: input.sessionID,
       reason: input.reason,
       session: MemorySession.port({ sessions: input.sessions, summary: input.summary }),
-      model: MemoryModel.port({ provider: input.provider }),
+      model: MemoryModel.port({
+        provider: input.provider,
+        authority: async (model, sessionID): Promise<UtilityAccountType.Identity> => {
+          const { AppRuntime } = await import("@/effect/app-runtime")
+          const auth = await AppRuntime.runPromise(
+            UtilityAccount.resolve({
+              operation: "memory",
+              model: { providerID: model.providerID, id: model.id },
+              context: { kind: "session", sourceSessionID: sessionID },
+            }),
+          )
+          if (auth.mode === "profile" && model.api.npm !== "@ai-sdk/openai")
+            throw new UtilityAccount.Failure("context-mismatch")
+          return auth
+        },
+      }),
     })
   })
 }

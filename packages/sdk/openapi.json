@@ -11622,6 +11622,107 @@
         ]
       }
     },
+    "/commit-message/prepare": {
+      "post": {
+        "tags": ["commit-message"],
+        "operationId": "commitMessage.prepare",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resolved model and available account-context choices",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "model": {
+                      "type": "object",
+                      "properties": {
+                        "providerID": {
+                          "type": "string"
+                        },
+                        "modelID": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["providerID", "modelID"],
+                      "additionalProperties": false
+                    },
+                    "profilesEnabled": {
+                      "type": "boolean"
+                    },
+                    "requiresAccountContext": {
+                      "type": "boolean"
+                    },
+                    "allowedContextKinds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": ["legacy", "account"]
+                      }
+                    }
+                  },
+                  "required": ["model", "profilesEnabled", "requiresAccountContext", "allowedContextKinds"],
+                  "additionalProperties": false,
+                  "description": "Resolved model and available account-context choices"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "BadRequest | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "CommitMessageFailedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommitMessageFailedError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Prepare commit message generation",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.commitMessage.prepare({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/commit-message": {
       "post": {
         "tags": ["commit-message"],
@@ -11721,6 +11822,59 @@
                   },
                   "language": {
                     "type": "string"
+                  },
+                  "model": {
+                    "type": "object",
+                    "properties": {
+                      "providerID": {
+                        "type": "string"
+                      },
+                      "modelID": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["providerID", "modelID"],
+                    "additionalProperties": false
+                  },
+                  "accountContext": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": ["account"]
+                          },
+                          "providerID": {
+                            "type": "string",
+                            "enum": ["openai"]
+                          },
+                          "authMode": {
+                            "type": "string",
+                            "enum": ["chatgpt-oauth"]
+                          },
+                          "accountID": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["kind", "providerID", "authMode", "accountID"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": ["legacy"]
+                          },
+                          "providerID": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["kind", "providerID"],
+                        "additionalProperties": false
+                      }
+                    ]
                   }
                 },
                 "required": ["path"],
@@ -12597,6 +12751,107 @@
         ]
       }
     },
+    "/enhance-prompt/prepare": {
+      "post": {
+        "tags": ["enhance-prompt"],
+        "operationId": "enhancePrompt.prepare",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resolved model and available account-context choices",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "model": {
+                      "type": "object",
+                      "properties": {
+                        "providerID": {
+                          "type": "string"
+                        },
+                        "modelID": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["providerID", "modelID"],
+                      "additionalProperties": false
+                    },
+                    "profilesEnabled": {
+                      "type": "boolean"
+                    },
+                    "requiresAccountContext": {
+                      "type": "boolean"
+                    },
+                    "allowedContextKinds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": ["legacy", "account", "session"]
+                      }
+                    }
+                  },
+                  "required": ["model", "profilesEnabled", "requiresAccountContext", "allowedContextKinds"],
+                  "additionalProperties": false,
+                  "description": "Resolved model and available account-context choices"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "BadRequest | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "EnhancePromptFailedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnhancePromptFailedError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Prepare prompt enhancement",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.enhancePrompt.prepare({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/enhance-prompt": {
       "post": {
         "tags": ["enhance-prompt"],
@@ -12654,6 +12909,16 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "EnhancePromptFailedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnhancePromptFailedError"
+                }
+              }
+            }
           }
         },
         "description": "Rewrite a user's draft prompt into a clearer, more specific, and more effective prompt.",
@@ -12668,6 +12933,73 @@
                     "type": "string",
                     "minLength": 1,
                     "description": "The user's draft prompt to enhance"
+                  },
+                  "model": {
+                    "type": "object",
+                    "properties": {
+                      "providerID": {
+                        "type": "string"
+                      },
+                      "modelID": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["providerID", "modelID"],
+                    "additionalProperties": false
+                  },
+                  "accountContext": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": ["account"]
+                          },
+                          "providerID": {
+                            "type": "string",
+                            "enum": ["openai"]
+                          },
+                          "authMode": {
+                            "type": "string",
+                            "enum": ["chatgpt-oauth"]
+                          },
+                          "accountID": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["kind", "providerID", "authMode", "accountID"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": ["legacy"]
+                          },
+                          "providerID": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["kind", "providerID"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": ["session"]
+                          },
+                          "sourceSessionID": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["kind", "sourceSessionID"],
+                        "additionalProperties": false
+                      }
+                    ]
                   }
                 },
                 "required": ["text"],
@@ -41017,7 +41349,7 @@
         "required": ["id", "sessionID", "output"],
         "additionalProperties": false
       },
-      "CommitMessageNoChangesError": {
+      "CommitMessageFailedError": {
         "type": "object",
         "properties": {
           "message": {
@@ -41027,7 +41359,7 @@
         "required": ["message"],
         "additionalProperties": false
       },
-      "CommitMessageFailedError": {
+      "CommitMessageNoChangesError": {
         "type": "object",
         "properties": {
           "message": {
@@ -41645,6 +41977,16 @@
           }
         },
         "required": ["keybinds"],
+        "additionalProperties": false
+      },
+      "EnhancePromptFailedError": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["message"],
         "additionalProperties": false
       },
       "KiloEmbeddingModelCatalog": {

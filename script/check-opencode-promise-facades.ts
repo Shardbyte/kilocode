@@ -41,6 +41,16 @@ const testAllow: Record<string, { count: number; reason: string }> = {
       "runtime's in-memory SQLite database with the HTTP server; an independent scoped runtime creates a different " +
       "database and cannot exercise the actual CLI/backend boundary.",
   },
+  "kilocode/commit-message-authority.test.ts": {
+    count: 4,
+    reason:
+      "Utility generation uses the production application runtime; synthetic profile setup and resolver admission must share its account store and instance context to exercise frozen invocation identity.",
+  },
+  "kilocode/enhance-prompt-authority.test.ts": {
+    count: 6,
+    reason:
+      "Prompt enhancement uses the production application runtime; real source-session bindings and profile setup must share that runtime to verify auxiliary authority without creating utility sessions.",
+  },
   "kilocode/plan-followup.test.ts": { count: 3, reason: "existing runtime integration test" },
   "kilocode/session-compaction-chunks.test.ts": {
     count: 2,

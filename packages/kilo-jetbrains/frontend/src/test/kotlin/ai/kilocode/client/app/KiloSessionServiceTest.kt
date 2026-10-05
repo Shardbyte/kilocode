@@ -4,6 +4,7 @@ import ai.kilocode.client.session.SessionActivityKind
 import ai.kilocode.client.testing.FakeSessionRpcApi
 import ai.kilocode.client.testing.TestLog
 import ai.kilocode.rpc.dto.ChatEventDto
+import ai.kilocode.rpc.dto.EnhancePromptRequestDto
 import ai.kilocode.rpc.dto.SessionActivityDto
 import ai.kilocode.rpc.dto.SessionActivityKindDto
 import ai.kilocode.rpc.dto.SessionDto
@@ -105,10 +106,20 @@ class KiloSessionServiceTest : BasePlatformTestCase() {
     fun `test enhance prompt delegates directory and text`() = runBlocking(Dispatchers.Default) {
         rpc.enhanced = "Use a focused implementation plan"
 
-        val result = service.enhancePrompt("/workspace", "make a plan")
+        val request = EnhancePromptRequestDto("make a plan", "openai", "gpt-5-mini", sourceSessionID = "ses_source")
+        val result = service.enhancePrompt("/workspace", request)
 
         assertEquals("Use a focused implementation plan", result)
-        assertEquals(listOf("/workspace" to "make a plan"), rpc.enhancements)
+        assertEquals(listOf("/workspace" to request), rpc.enhancements)
+    }
+
+    fun `test prepare enhancement returns safe chooser options`() = runBlocking(Dispatchers.Default) {
+        val opts = service.prepareEnhancePrompt("/workspace")
+
+        assertEquals("openai", opts.providerID)
+        assertEquals("gpt-5-mini", opts.modelID)
+        assertEquals(listOf("/workspace"), rpc.enhancePreparations)
+        assertTrue(opts.accounts.isEmpty())
     }
 
     fun `test events logs normal completion`() = runBlocking(Dispatchers.Default) {

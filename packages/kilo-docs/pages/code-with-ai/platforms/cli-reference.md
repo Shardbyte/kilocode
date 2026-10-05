@@ -605,6 +605,8 @@ Options:
       --mode                  agent mode  [string] [choices: "all", "primary", "subagent"]
       --permissions, --tools  comma-separated list of permissions to allow (default: all). Available: "bash, read, edit, glob, grep, webfetch, task, todowrite, websearch, lsp, skill"  [string]
   -m, --model                 model to use in the format of provider/model  [string]
+      --account               OpenAI account ID to use for generation  [string]
+      --legacy-auth           use legacy OpenAI authentication for generation  [boolean] [default: false]
 ```
 
 ### kilo agent list
@@ -684,14 +686,16 @@ Positionals:
   filter  regex to filter models by provider/modelID (required)  [string]
 
 Options:
-  --help      Show help  [boolean]
-  --version   Show version number  [boolean]
-  --prompt    Prompt to send to each model  [string] [default: "Hello"]
-  --timeout   Timeout for each model call in milliseconds  [number] [default: 25000]
-  --parallel  Number of parallel model calls  [number] [default: 5]
-  --verbose   Show verbose output  [boolean] [default: false]
-  --quiet     Suppress progress and decoration  [boolean] [default: false]
-  --output    Output format (table, json, or md)  [string] [choices: "table", "json", "md"] [default: "table"]
+  --help         Show help  [boolean]
+  --version      Show version number  [boolean]
+  --prompt       Prompt to send to each model  [string] [default: "Hello"]
+  --timeout      Timeout for each model call in milliseconds  [number] [default: 25000]
+  --parallel     Number of parallel model calls  [number] [default: 5]
+  --verbose      Show verbose output  [boolean] [default: false]
+  --quiet        Suppress progress and decoration  [boolean] [default: false]
+  --account      OpenAI account ID for matching OpenAI models  [string]
+  --legacy-auth  use legacy OpenAI authentication  [boolean] [default: false]
+  --output       Output format (table, json, or md)  [string] [choices: "table", "json", "md"] [default: "table"]
 ```
 
 ## kilo profile

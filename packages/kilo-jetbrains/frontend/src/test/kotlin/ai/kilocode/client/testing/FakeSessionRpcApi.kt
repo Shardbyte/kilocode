@@ -6,6 +6,8 @@ import ai.kilocode.rpc.dto.ChatEventDto
 import ai.kilocode.rpc.dto.CloudSessionDto
 import ai.kilocode.rpc.dto.CloudSessionListDto
 import ai.kilocode.rpc.dto.DiffFileDto
+import ai.kilocode.rpc.dto.EnhancePromptOptionsDto
+import ai.kilocode.rpc.dto.EnhancePromptRequestDto
 import ai.kilocode.rpc.dto.MessageWithPartsDto
 import ai.kilocode.rpc.dto.ModelSelectionDto
 import ai.kilocode.rpc.dto.PermissionAlwaysRulesDto
@@ -110,7 +112,10 @@ class FakeSessionRpcApi : KiloSessionRpcApi {
 
     // --- Call tracking ---
 
-    val enhancements = mutableListOf<Pair<String, String>>()
+    val enhancePreparations = mutableListOf<String>()
+    var enhanceOptions = EnhancePromptOptionsDto("openai", "gpt-5-mini", true, true, listOf("legacy", "account", "session"), listOf())
+    var enhancePrepareGate: CompletableDeferred<Unit>? = null
+    val enhancements = mutableListOf<Pair<String, EnhancePromptRequestDto>>()
     var enhanced = "Enhanced prompt"
     var enhanceGate: CompletableDeferred<Unit>? = null
     var enhanceThrows: Exception? = null
@@ -276,9 +281,16 @@ class FakeSessionRpcApi : KiloSessionRpcApi {
         return fallback
     }
 
-    override suspend fun enhancePrompt(directory: String, text: String): String {
+    override suspend fun prepareEnhancePrompt(directory: String): EnhancePromptOptionsDto {
+        assertNotEdt("prepareEnhancePrompt")
+        enhancePreparations.add(directory)
+        enhancePrepareGate?.await()
+        return enhanceOptions
+    }
+
+    override suspend fun enhancePrompt(directory: String, request: EnhancePromptRequestDto): String {
         assertNotEdt("enhancePrompt")
-        enhancements.add(directory to text)
+        enhancements.add(directory to request)
         enhanceGate?.await()
         enhanceThrows?.let { throw it }
         return enhanced

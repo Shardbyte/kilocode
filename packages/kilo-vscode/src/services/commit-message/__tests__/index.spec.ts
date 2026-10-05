@@ -38,7 +38,7 @@ import type { KiloConnectionService } from "../../cli-backend/connection-service
 describe("commit-message service", () => {
   let mockContext: vscode.ExtensionContext
   let mockConnectionService: KiloConnectionService
-  let mockClient: { commitMessage: { generate: Mock } }
+  let mockClient: { commitMessage: { prepare: Mock; generate: Mock }; providerAccounts: { list: Mock } }
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -49,12 +49,22 @@ describe("commit-message service", () => {
 
     mockClient = {
       commitMessage: {
+        prepare: vi.fn().mockResolvedValue({
+          data: {
+            model: { providerID: "openai", modelID: "gpt-4.1-mini" },
+            profilesEnabled: false,
+            requiresAccountContext: false,
+            allowedContextKinds: [],
+          },
+        }),
         generate: vi.fn().mockResolvedValue({ data: { message: "feat: add new feature" } }),
       },
+      providerAccounts: { list: vi.fn().mockResolvedValue({ data: { accounts: [] } }) },
     }
 
     mockConnectionService = {
       getClientAsync: vi.fn().mockResolvedValue(mockClient),
+      getClient: vi.fn().mockReturnValue(mockClient),
     } as any
   })
 
@@ -177,7 +187,12 @@ describe("commit-message service", () => {
       await commandCallback()
 
       expect(mockClient.commitMessage.generate).toHaveBeenCalledWith(
-        { path: "/repo", selectedFiles: undefined, previousMessage: undefined },
+        expect.objectContaining({
+          path: "/repo",
+          selectedFiles: undefined,
+          previousMessage: undefined,
+          model: { providerID: "openai", modelID: "gpt-4.1-mini" },
+        }),
         expect.objectContaining({ throwOnError: true }),
       )
     })
@@ -262,7 +277,7 @@ describe("commit-message service", () => {
       expect(mainInputBox.value).toBe("")
     })
 
-    it("falls back to first repository when SourceControl arg has no match", async () => {
+    it("does not generate for a SourceControl repo outside the repository list", async () => {
       const mainInputBox = { value: "" }
       vi.mocked(vscode.extensions.getExtension).mockReturnValue({
         isActive: true,
@@ -281,7 +296,8 @@ describe("commit-message service", () => {
       const scmArg = { rootUri: { fsPath: "/nonexistent-repo" } } as vscode.SourceControl
       await commandCallback(scmArg)
 
-      expect(mainInputBox.value).toBe("feat: add new feature")
+      expect(mainInputBox.value).toBe("")
+      expect(mockConnectionService.getClientAsync).not.toHaveBeenCalled()
     })
   })
 })

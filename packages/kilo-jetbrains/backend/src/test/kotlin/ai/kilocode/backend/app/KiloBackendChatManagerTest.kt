@@ -5,6 +5,8 @@ import ai.kilocode.backend.testing.TestLog
 import ai.kilocode.rpc.dto.ChatEventDto
 import ai.kilocode.rpc.dto.ModelSelectionDto
 import ai.kilocode.rpc.dto.PromptDto
+import ai.kilocode.rpc.dto.EnhancePromptRequestDto
+import ai.kilocode.rpc.dto.EnhancePromptAccountDto
 import ai.kilocode.rpc.dto.PromptPartDto
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -27,6 +29,22 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class KiloBackendChatManagerTest {
+
+    @Test
+    fun `prepare enhancement freezes model and returns only safe OpenAI account labels`() = runBlocking {
+        val port = mock.start()
+        val chat = KiloBackendChatManager(scope, TestLog())
+        chat.start(OkHttpClient(), port, MutableSharedFlow())
+        mock.providerAccounts = """{"accounts":[{"id":"acct_1","provider":"openai","authMode":"chatgpt-oauth","label":"Work","authState":"ready"},{"id":"acct_bad","provider":"other","authMode":"chatgpt-oauth","label":"Other"}]}"""
+
+        val opts = chat.prepareEnhancePrompt("/test/project")
+
+        assertEquals("openai", opts.providerID)
+        assertEquals("gpt-5-mini", opts.modelID)
+        assertEquals(listOf(EnhancePromptAccountDto("acct_1", "Work")), opts.accounts)
+        assertEquals(1, mock.requestCount("/enhance-prompt/prepare"))
+        assertEquals(1, mock.requestCount("/provider-accounts"))
+    }
 
     private val mock = MockCliServer()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -185,12 +203,90 @@ class KiloBackendChatManagerTest {
         chat.start(OkHttpClient(), port, MutableSharedFlow())
         mock.enhanced = """{"text":"Use a focused implementation plan"}"""
 
-        val result = chat.enhancePrompt("/test/project", "make a plan")
+        val result = chat.enhancePrompt("/test/project", EnhancePromptRequestDto("make a plan", "openai", "gpt-5-mini", sourceSessionID = "ses_source"))
 
         assertEquals("Use a focused implementation plan", result)
         assertEquals(1, mock.requestCount("/enhance-prompt"))
         assertTrue(mock.lastEnhancePath!!.startsWith("/enhance-prompt?directory="))
-        assertEquals("""{"text":"make a plan"}""", mock.lastEnhanceBody)
+        assertEquals("""{"text":"make a plan","model":{"providerID":"openai","modelID":"gpt-5-mini"}, "accountContext":{"kind":"session","sourceSessionID":"ses_source"}}""", mock.lastEnhanceBody)
+    }
+
+    @Test
+    fun `enhance prompt sends explicit legacy account context`() = runBlocking {
+        val port = mock.start()
+        val chat = KiloBackendChatManager(scope, TestLog())
+        chat.start(OkHttpClient(), port, MutableSharedFlow())
+
+        chat.enhancePrompt("/test/project", EnhancePromptRequestDto("make a plan", "openai", "gpt-5-mini", legacy = true))
+
+        assertEquals("""{"text":"make a plan","model":{"providerID":"openai","modelID":"gpt-5-mini"}, "accountContext":{"kind":"legacy","providerID":"openai"}}""", mock.lastEnhanceBody)
+    }
+
+    @Test
+    fun `enhance prompt preserves provider auth without an account context`() = runBlocking {
+        val port = mock.start()
+        val chat = KiloBackendChatManager(scope, TestLog())
+        chat.start(OkHttpClient(), port, MutableSharedFlow())
+
+        chat.enhancePrompt("/test/project", EnhancePromptRequestDto("help explain this", "anthropic", "claude-sonnet"))
+
+        assertEquals("""{"text":"help explain this","model":{"providerID":"anthropic","modelID":"claude-sonnet"}}""", mock.lastEnhanceBody)
+    }
+
+    @Test
+    fun `enhance prompt allows OpenAI legacy auth when profiles are disabled`() = runBlocking {
+        val port = mock.start()
+        val chat = KiloBackendChatManager(scope, TestLog())
+        chat.start(OkHttpClient(), port, MutableSharedFlow())
+
+        chat.enhancePrompt("/test/project", EnhancePromptRequestDto("make a plan", "openai", "gpt-5-mini"))
+
+        assertEquals("""{"text":"make a plan","model":{"providerID":"openai","modelID":"gpt-5-mini"}}""", mock.lastEnhanceBody)
+    }
+
+    @Test
+    fun `enhance prompt serializes the explicitly chosen account`() = runBlocking {
+        val port = mock.start()
+        val chat = KiloBackendChatManager(scope, TestLog())
+        chat.start(OkHttpClient(), port, MutableSharedFlow())
+
+        chat.enhancePrompt("/test/project", EnhancePromptRequestDto("make a plan", "openai", "gpt-5-mini", accountID = "acct_work"))
+
+        assertEquals("""{"text":"make a plan","model":{"providerID":"openai","modelID":"gpt-5-mini"}, "accountContext":{"kind":"account","providerID":"openai","authMode":"chatgpt-oauth","accountID":"acct_work"}}""", mock.lastEnhanceBody)
+    }
+
+    @Test
+    fun `enhance prompt rejects conflicting session and account contexts`() = runBlocking {
+        val port = mock.start()
+        val chat = KiloBackendChatManager(scope, TestLog())
+        chat.start(OkHttpClient(), port, MutableSharedFlow())
+
+        assertFailsWith<IllegalArgumentException> {
+            runBlocking {
+                chat.enhancePrompt(
+                    "/test/project",
+                    EnhancePromptRequestDto("help", "openai", "gpt-5-mini", sourceSessionID = "ses_source", accountID = "acct_work"),
+                )
+            }
+        }
+        assertEquals(0, mock.requestCount("/enhance-prompt"))
+    }
+
+    @Test
+    fun `enhance prompt rejects all conflicting context kinds`() = runBlocking {
+        val port = mock.start()
+        val chat = KiloBackendChatManager(scope, TestLog())
+        chat.start(OkHttpClient(), port, MutableSharedFlow())
+
+        assertFailsWith<IllegalArgumentException> {
+            runBlocking {
+                chat.enhancePrompt(
+                    "/test/project",
+                    EnhancePromptRequestDto("help", "openai", "gpt-5-mini", sourceSessionID = "ses_source", accountID = "acct_work", legacy = true),
+                )
+            }
+        }
+        assertEquals(0, mock.requestCount("/enhance-prompt"))
     }
 
     @Test
@@ -202,10 +298,10 @@ class KiloBackendChatManagerTest {
         mock.enhanced = """{"error":"provider unavailable"}"""
 
         val error = assertFailsWith<RuntimeException> {
-            chat.enhancePrompt("/test/project", "make a plan")
+            chat.enhancePrompt("/test/project", EnhancePromptRequestDto("make a plan", "openai", "gpt-5-mini", legacy = true))
         }
 
-        assertEquals("Enhance prompt failed: HTTP 500", error.message)
+        assertEquals("Enhance prompt unavailable (HTTP 500). Check the configured model and account settings.", error.message)
     }
 
     @Test
@@ -231,7 +327,7 @@ class KiloBackendChatManagerTest {
         chat.start(OkHttpClient(), port, MutableSharedFlow())
         val gate = CountDownLatch(1)
         mock.responseGate = gate
-        val request = async(Dispatchers.Default) { chat.enhancePrompt("/test/project", "make a plan") }
+        val request = async(Dispatchers.Default) { chat.enhancePrompt("/test/project", EnhancePromptRequestDto("make a plan", "openai", "gpt-5-mini", legacy = true)) }
         assertTrue(mock.awaitRequestCount("/enhance-prompt", 1))
 
         request.cancelAndJoin()

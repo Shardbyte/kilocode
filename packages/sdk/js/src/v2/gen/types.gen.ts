@@ -3915,11 +3915,11 @@ export type BackgroundProcessLogs = {
   output: string
 }
 
-export type CommitMessageNoChangesError = {
+export type CommitMessageFailedError = {
   message: string
 }
 
-export type CommitMessageFailedError = {
+export type CommitMessageNoChangesError = {
   message: string
 }
 
@@ -4108,6 +4108,10 @@ export type TuiKeybindInfo = {
 
 export type TuiKeybindListResponse = {
   keybinds: Array<TuiKeybindInfo>
+}
+
+export type EnhancePromptFailedError = {
+  message: string
 }
 
 export type KiloEmbeddingModelCatalog = {
@@ -15671,6 +15675,46 @@ export type BranchNameGenerateResponses = {
 
 export type BranchNameGenerateResponse = BranchNameGenerateResponses[keyof BranchNameGenerateResponses]
 
+export type CommitMessagePrepareData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/commit-message/prepare"
+}
+
+export type CommitMessagePrepareErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * CommitMessageFailedError
+   */
+  422: CommitMessageFailedError
+}
+
+export type CommitMessagePrepareError = CommitMessagePrepareErrors[keyof CommitMessagePrepareErrors]
+
+export type CommitMessagePrepareResponses = {
+  /**
+   * Resolved model and available account-context choices
+   */
+  200: {
+    model: {
+      providerID: string
+      modelID: string
+    }
+    profilesEnabled: boolean
+    requiresAccountContext: boolean
+    allowedContextKinds: Array<"legacy" | "account">
+  }
+}
+
+export type CommitMessagePrepareResponse = CommitMessagePrepareResponses[keyof CommitMessagePrepareResponses]
+
 export type CommitMessageGenerateData = {
   body?: {
     /**
@@ -15680,6 +15724,21 @@ export type CommitMessageGenerateData = {
     selectedFiles?: Array<string>
     previousMessage?: string
     language?: string
+    model?: {
+      providerID: string
+      modelID: string
+    }
+    accountContext?:
+      | {
+          kind: "account"
+          providerID: "openai"
+          authMode: "chatgpt-oauth"
+          accountID: string
+        }
+      | {
+          kind: "legacy"
+          providerID: string
+        }
   }
   path?: never
   query?: {
@@ -16080,12 +16139,71 @@ export type TuiKeybindListResponses = {
 
 export type TuiKeybindListResponse2 = TuiKeybindListResponses[keyof TuiKeybindListResponses]
 
+export type EnhancePromptPrepareData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/enhance-prompt/prepare"
+}
+
+export type EnhancePromptPrepareErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * EnhancePromptFailedError
+   */
+  422: EnhancePromptFailedError
+}
+
+export type EnhancePromptPrepareError = EnhancePromptPrepareErrors[keyof EnhancePromptPrepareErrors]
+
+export type EnhancePromptPrepareResponses = {
+  /**
+   * Resolved model and available account-context choices
+   */
+  200: {
+    model: {
+      providerID: string
+      modelID: string
+    }
+    profilesEnabled: boolean
+    requiresAccountContext: boolean
+    allowedContextKinds: Array<"legacy" | "account" | "session">
+  }
+}
+
+export type EnhancePromptPrepareResponse = EnhancePromptPrepareResponses[keyof EnhancePromptPrepareResponses]
+
 export type EnhancePromptEnhanceData = {
   body?: {
     /**
      * The user's draft prompt to enhance
      */
     text: string
+    model?: {
+      providerID: string
+      modelID: string
+    }
+    accountContext?:
+      | {
+          kind: "account"
+          providerID: "openai"
+          authMode: "chatgpt-oauth"
+          accountID: string
+        }
+      | {
+          kind: "legacy"
+          providerID: string
+        }
+      | {
+          kind: "session"
+          sourceSessionID: string
+        }
   }
   path?: never
   query?: {
@@ -16100,6 +16218,10 @@ export type EnhancePromptEnhanceErrors = {
    * BadRequest | InvalidRequestError
    */
   400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * EnhancePromptFailedError
+   */
+  422: EnhancePromptFailedError
 }
 
 export type EnhancePromptEnhanceError = EnhancePromptEnhanceErrors[keyof EnhancePromptEnhanceErrors]

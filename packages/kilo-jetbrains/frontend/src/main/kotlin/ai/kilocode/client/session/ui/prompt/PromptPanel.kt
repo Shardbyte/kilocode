@@ -715,12 +715,12 @@ class PromptPanel(
             editor.text = it
             syncEditorHeight()
             focus()
-        }.onFailure {
-            if (it is CancellationException) return@onFailure
+        }.onFailure { err ->
+            if (err is CancellationException) return@onFailure
             KiloNotifications.error(
                 project,
                 KiloBundle.message("prompt.action.enhance.failed"),
-                KiloBundle.message("prompt.action.enhance.failed.description"),
+                err.message ?: KiloBundle.message("prompt.action.enhance.failed.description"),
             )
         }
     }

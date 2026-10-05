@@ -17,6 +17,7 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { SessionID } from "@/session/schema"
 import { opencodeSessionHeaders } from "@/kilocode/provider/opencode-session-headers"
+import type { UtilityAccount } from "@/kilocode/provider/utility-account"
 
 const log = Log.create({ service: "memory.ports" })
 
@@ -136,19 +137,21 @@ function latest(messages: MessageV2.WithParts[]): Turn | undefined {
 
 /** True when the turn was answered from memory (targeted recall ran); digesting it would echo memory back into itself. */
 function recalledMemory(turn: Turn) {
-  return [turn.user, ...turn.assistants].flatMap((item) => item.parts).some((part) => {
-    if (part.type === "tool") {
-      return (
-        part.tool === "kilo_memory_recall" &&
-        part.state.status === "completed" &&
-        typeof part.state.metadata.count === "number" &&
-        part.state.metadata.count > 0
-      )
-    }
-    if (part.type !== "text") return false
-    const marker = (part.metadata as { kiloMemory?: { type?: string; count?: number } } | undefined)?.kiloMemory
-    return marker?.type === "recall" && (marker.count ?? 0) > 0
-  })
+  return [turn.user, ...turn.assistants]
+    .flatMap((item) => item.parts)
+    .some((part) => {
+      if (part.type === "tool") {
+        return (
+          part.tool === "kilo_memory_recall" &&
+          part.state.status === "completed" &&
+          typeof part.state.metadata.count === "number" &&
+          part.state.metadata.count > 0
+        )
+      }
+      if (part.type !== "text") return false
+      const marker = (part.metadata as { kiloMemory?: { type?: string; count?: number } } | undefined)?.kiloMemory
+      return marker?.type === "recall" && (marker.count ?? 0) > 0
+    })
 }
 
 // --- Model resolution + invocation (host provider/`ai` -> port ModelHandle) --------------------
@@ -226,17 +229,14 @@ async function memoryText(input: {
   }
 }
 
-function modelOptions(model: Provider.Model, language: LanguageModelV3) {
-  const options = consolidationOptions(model)
-  // No explicit output cap: valid output is already bounded by the compact-JSON prompt, the parser's
-  // 64KB guard, and the capture timeout — and some backends reject explicit caps outright.
-  const temperature = ProviderTransform.temperature(model)
-  const topP = ProviderTransform.topP(model)
-  const topK = ProviderTransform.topK(model)
-  return { source: model, language, options, temperature, topP, topK }
+type ModelHandle = {
+  source: Provider.Model
+  options: Record<string, unknown>
+  temperature?: number
+  topP?: number
+  topK?: number
+  invocation?: { sessionID: string; authority: Promise<UtilityAccount.Identity> }
 }
-
-type ModelHandle = ReturnType<typeof modelOptions>
 
 // --- Ports -------------------------------------------------------------------------------------
 
@@ -253,16 +253,14 @@ export namespace MemorySession {
           const messages = yield* input.sessions.messages({ sessionID: SessionID.make(sessionID), limit: window })
           const turn = latest(messages)
           if (!turn) return undefined
-          const diffs = yield* input.summary
-            .computeDiff({ messages: [turn.user, ...turn.assistants] })
-            .pipe(
-              Effect.catch((err) =>
-                Effect.sync(() => {
-                  log.warn("memory turn diff unavailable", { error: String(err) })
-                  return [] as Snapshot.FileDiff[]
-                }),
-              ),
-            )
+          const diffs = yield* input.summary.computeDiff({ messages: [turn.user, ...turn.assistants] }).pipe(
+            Effect.catch((err) =>
+              Effect.sync(() => {
+                log.warn("memory turn diff unavailable", { error: String(err) })
+                return [] as Snapshot.FileDiff[]
+              }),
+            ),
+          )
           return {
             user: text(turn.user.parts),
             assistant: output(turn.assistant.parts),
@@ -288,7 +286,10 @@ export namespace MemorySession {
 /** Host ModelPort: resolves the consolidation model through opencode's provider and runs it via the
  * `ai` SDK, exposing the resolved model to the package as an opaque handle. */
 export namespace MemoryModel {
-  export function port(input: { provider: Provider.Interface }): MemoryPorts.ModelPort {
+  export function port(input: {
+    provider: Provider.Interface
+    authority: (model: Provider.Model, sessionID: string) => Promise<UtilityAccount.Identity>
+  }): MemoryPorts.ModelPort {
     return {
       resolve: ({ configured, session }) =>
         Effect.gen(function* () {
@@ -314,23 +315,48 @@ export namespace MemoryModel {
             source = yield* sessionModel()
           }
           if (reason) log.warn("memory model config ignored", { reason, model: configured })
-          const language = yield* input.provider.getLanguage(source)
-          return { handle: modelOptions(source, language), ...(reason ? { fallback: { reason } } : {}) }
+          const handle = {
+            source,
+            options: consolidationOptions(source),
+            temperature: ProviderTransform.temperature(source),
+            topP: ProviderTransform.topP(source),
+            topK: ProviderTransform.topK(source),
+          }
+          return { handle, ...(reason ? { fallback: { reason } } : {}) }
         }).pipe(Effect.mapError(MemoryError.from)),
       run: ({ handle, sessionID, system, prompt, timeoutMs, signal }) => {
         const resolved = handle as ModelHandle
-        return memoryText({
-          source: resolved.source,
-          language: resolved.language,
-          options: resolved.options,
-          system,
-          prompt,
-          timeoutMs,
-          sessionID,
-          temperature: resolved.temperature,
-          topP: resolved.topP,
-          topK: resolved.topK,
-          signal,
+        return (async () => {
+          const { AppRuntime } = await import("@/effect/app-runtime")
+          if (resolved.invocation && resolved.invocation.sessionID !== sessionID)
+            throw new Error("The memory invocation does not match its source session")
+          resolved.invocation ??= { sessionID, authority: input.authority(resolved.source, sessionID) }
+          const authority = await resolved.invocation.authority
+          const language = await AppRuntime.runPromise(
+            input.provider.getLanguage(resolved.source, authority.mode === "profile" ? authority.profileID : undefined),
+          )
+          return memoryText({
+            source: resolved.source,
+            language,
+            options:
+              authority.mode === "profile"
+                ? { ...resolved.options, instructions: system, store: false }
+                : resolved.options,
+            system,
+            prompt,
+            timeoutMs,
+            sessionID,
+            temperature: resolved.temperature,
+            topP: resolved.topP,
+            topK: resolved.topK,
+            signal,
+          })
+        })().catch((err) => {
+          if (err instanceof DOMException && err.name === "TimeoutError")
+            throw new DOMException("memory model timed out", "TimeoutError")
+          if (err instanceof DOMException && err.name === "AbortError")
+            throw new DOMException("memory model cancelled", "AbortError")
+          throw new Error("Memory utility generation failed")
         })
       },
     }

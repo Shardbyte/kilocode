@@ -1,6 +1,14 @@
 import { test, expect, describe } from "bun:test"
 import { Provider } from "../../../src/provider/provider"
-import { formatTable, formatMarkdown, handle, isTextModel, outputLimit } from "../../../src/kilocode/cli/cmd/roll-call"
+import {
+  formatTable,
+  formatMarkdown,
+  handle,
+  invalidContext,
+  isTextModel,
+  outputLimit,
+  probeContext,
+} from "../../../src/kilocode/cli/cmd/roll-call"
 
 const base = {
   input: { text: false, audio: false, image: false, video: false, pdf: false },
@@ -108,6 +116,42 @@ describe("outputLimit", () => {
     } as Provider.Model
 
     expect(outputLimit(model, 512)).toBe(512)
+  })
+})
+
+describe("roll-call account context", () => {
+  test("applies explicit OpenAI authority only to OpenAI probes", () => {
+    const context = {
+      kind: "account",
+      providerID: "openai",
+      authMode: "chatgpt-oauth",
+      accountID: "pacc_work",
+    } as const
+
+    expect(probeContext("openai", context)).toEqual(context)
+    expect(probeContext("anthropic", context)).toBeUndefined()
+  })
+
+  test("rejects explicit OpenAI context when no OpenAI probe is targeted", () => {
+    expect(invalidContext([], true)).toBe(true)
+    expect(invalidContext(["anthropic", "openai"], true)).toBe(false)
+    expect(invalidContext(["anthropic"], false)).toBe(false)
+  })
+
+  test("redacts bearer and token values from displayed errors", () => {
+    const output = formatMarkdown([
+      [
+        "openai/gpt",
+        "NO",
+        "",
+        'Bearer super-secret-value sk-proj-abcdefghijklmnopqrstuvwxyz1234567890 access_token="secret-access"',
+      ],
+    ])
+
+    expect(output).not.toContain("super-secret-value")
+    expect(output).not.toContain("sk-proj-abcdefghijklmnopqrstuvwxyz1234567890")
+    expect(output).not.toContain("secret-access")
+    expect(output).toContain("[redacted]")
   })
 })
 

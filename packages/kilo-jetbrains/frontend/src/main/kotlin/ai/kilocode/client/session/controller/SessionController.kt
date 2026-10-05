@@ -39,6 +39,7 @@ import ai.kilocode.rpc.dto.BackgroundJobDto
 import ai.kilocode.rpc.dto.ChatEventDto
 import ai.kilocode.rpc.dto.ConfigWarningDto
 import ai.kilocode.rpc.dto.EditorContextDto
+import ai.kilocode.rpc.dto.EnhancePromptRequestDto
 import ai.kilocode.rpc.dto.PartDto
 import ai.kilocode.rpc.dto.KiloAppStatusDto
 import ai.kilocode.rpc.dto.KiloWorkspaceStatusDto
@@ -68,8 +69,10 @@ import com.intellij.openapi.actionSystem.IdeActions
 import ai.kilocode.log.ChatLogSummary
 import ai.kilocode.log.KiloLog
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.ui.Messages
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -77,8 +80,42 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.awt.Component
 import java.nio.file.Path
+
+internal data class EnhanceChoice(val label: String, val accountID: String? = null, val legacy: Boolean = false)
+
+internal fun enhanceChoices(opts: ai.kilocode.rpc.dto.EnhancePromptOptionsDto): List<EnhanceChoice> = buildList {
+    if ("legacy" in opts.allowedContextKinds) add(EnhanceChoice(KiloBundle.message("prompt.action.enhance.account.legacy"), legacy = true))
+    if ("account" in opts.allowedContextKinds) opts.accounts.forEach { add(EnhanceChoice(it.label, accountID = it.id)) }
+}
+
+internal fun chooseEnhanceChoice(opts: ai.kilocode.rpc.dto.EnhancePromptOptionsDto, select: (List<String>) -> Int): EnhanceChoice? {
+    val choices = enhanceChoices(opts)
+    if (choices.isEmpty()) return null
+    return choices.getOrNull(select(choices.map { it.label }))
+}
+
+internal fun enhanceRequest(
+    text: String,
+    opts: ai.kilocode.rpc.dto.EnhancePromptOptionsDto,
+    sourceSessionID: String?,
+    choice: EnhanceChoice? = null,
+): EnhancePromptRequestDto? {
+    if (sourceSessionID != null) {
+        return EnhancePromptRequestDto(text, opts.providerID, opts.modelID, sourceSessionID = sourceSessionID)
+    }
+    if (!opts.requiresAccountContext) return EnhancePromptRequestDto(text, opts.providerID, opts.modelID)
+    if (choice == null) return null
+    return EnhancePromptRequestDto(
+        text,
+        opts.providerID,
+        opts.modelID,
+        accountID = choice.accountID,
+        legacy = choice.legacy,
+    )
+}
 
 /**
  * Session lifecycle orchestrator for a single session.
@@ -271,12 +308,36 @@ class SessionController(
             complete(Result.failure(CancellationException("Session controller disposed")))
             return
         }
+        val sourceSessionID = sid
         val id = ++enhancement
         enhancements[id] = complete
         capture("Prompt Enhance Clicked", mapOf("textLength" to bucket(text)))
         cs.launch {
             val result = try {
-                Result.success(sessions.enhancePrompt(directory, text))
+                val opts = sessions.prepareEnhancePrompt(directory)
+                val req = if (sourceSessionID != null || !opts.requiresAccountContext) {
+                    checkNotNull(enhanceRequest(text, opts, sourceSessionID))
+                } else {
+                    val choices = enhanceChoices(opts)
+                    if (choices.isEmpty()) {
+                        EnhancePromptRequestDto(text, opts.providerID, opts.modelID)
+                    } else {
+                        val choice = withContext(Dispatchers.Main) {
+                            chooseEnhanceChoice(opts) { labels ->
+                                Messages.showChooseDialog(
+                                    KiloBundle.message("prompt.action.enhance.account.description"),
+                                    KiloBundle.message("prompt.action.enhance.account.title"),
+                                    labels.toTypedArray(),
+                                    null,
+                                    null,
+                                )
+                            }
+                        }
+                            ?: throw CancellationException("Account selection cancelled")
+                        checkNotNull(enhanceRequest(text, opts, null, choice))
+                    }
+                }
+                Result.success(sessions.enhancePrompt(directory, req))
             } catch (e: CancellationException) {
                 Result.failure(e)
             } catch (e: Exception) {

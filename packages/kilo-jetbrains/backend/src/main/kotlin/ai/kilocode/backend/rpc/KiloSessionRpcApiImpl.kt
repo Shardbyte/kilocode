@@ -14,6 +14,8 @@ import ai.kilocode.rpc.dto.BackgroundJobDto
 import ai.kilocode.rpc.dto.ChatEventDto
 import ai.kilocode.rpc.dto.CloudSessionListDto
 import ai.kilocode.rpc.dto.DiffFileDto
+import ai.kilocode.rpc.dto.EnhancePromptOptionsDto
+import ai.kilocode.rpc.dto.EnhancePromptRequestDto
 import ai.kilocode.rpc.dto.MessageWithPartsDto
 import ai.kilocode.rpc.dto.ModelSelectionDto
 import ai.kilocode.rpc.dto.PermissionAlwaysRulesDto
@@ -152,8 +154,11 @@ class KiloSessionRpcApiImpl internal constructor(
 
     // ------ chat ------
 
-    override suspend fun enhancePrompt(directory: String, text: String): String =
-        ready { chat.enhancePrompt(directory, text) }
+    override suspend fun prepareEnhancePrompt(directory: String): EnhancePromptOptionsDto =
+        ready { chat.prepareEnhancePrompt(directory) }
+
+    override suspend fun enhancePrompt(directory: String, request: EnhancePromptRequestDto): String =
+        ready { chat.enhancePrompt(directory, request) }
 
     override suspend fun prompt(id: String, directory: String, prompt: PromptDto) {
         app.requireReady()

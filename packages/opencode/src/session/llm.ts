@@ -27,7 +27,8 @@ import { Auth } from "@/auth"
 import { Session as SessionService } from "@/session/session" // kilocode_change
 import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles" // kilocode_change
 // kilocode_change start
-import { bindingSessionID, resolveBinding, type UtilityAccountContext } from "@/kilocode/provider/codex-profile" // kilocode_change
+import { resolveBinding, type UtilityAccountContext } from "@/kilocode/provider/codex-profile" // kilocode_change
+import { UtilityAccount } from "@/kilocode/provider/utility-account" // kilocode_change
 // kilocode_change end
 // kilocode_change start
 import { InstanceState } from "@/effect/instance-state"
@@ -65,6 +66,7 @@ export type StreamInput = {
   preflight?: boolean // kilocode_change - enable proactive threshold compaction for normal session turns
   reportedContextTokens?: number // kilocode_change - provider-reported context size from the last finished turn, source of truth for the output cap
   providerAccountContext?: UtilityAccountContext // kilocode_change - explicit Kilo utility account scope; never an auth override
+  utilityAccount?: UtilityAccount.Identity // kilocode_change - resolved credential-free authority reused by direct utility callers
 }
 
 export type StreamRequest = StreamInput & {
@@ -91,6 +93,7 @@ const live: Layer.Layer<
   | LLMClientService
   | RuntimeFlags.Service
   | SessionService.Service // kilocode_change
+  | ProviderAccountProfiles.Service // kilocode_change
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -103,6 +106,7 @@ const live: Layer.Layer<
     const llmClient = yield* LLMClient.Service
     const flags = yield* RuntimeFlags.Service
     const session = yield* SessionService.Service // kilocode_change
+    const profiles = yield* ProviderAccountProfiles.Service // kilocode_change
 
     const run = Effect.fn("LLM.run")(function* (input: StreamRequest) {
       const l = log.clone().tag("providerID", input.model.providerID).tag("modelID", input.model.id) // kilocode_change
@@ -117,14 +121,46 @@ const live: Layer.Layer<
 
       // kilocode_change start - profile-bound sessions never infer legacy auth from absent state
       const scope = input.providerAccountContext
-      const sessionID = bindingSessionID(scope, input.sessionID)
+      const operation =
+        scope?.kind === "session"
+          ? input.agent.name === "title"
+            ? "title"
+            : input.agent.name === "branch-name"
+              ? "branch-name"
+              : "enhance-prompt"
+          : scope?.kind === "commit-message"
+            ? "commit-message"
+            : scope?.kind === "account"
+              ? "agent-generation"
+              : "roll-call"
+      const resolved = input.utilityAccount
+        ? input.utilityAccount
+        : scope
+          ? yield* UtilityAccount.resolve({
+              operation,
+              model: input.model,
+              context:
+                scope.kind === "branch-name"
+                  ? { kind: "session", sourceSessionID: scope.sourceSessionID }
+                  : scope.kind === "commit-message"
+                    ? undefined
+                    : scope,
+            }).pipe(
+              Effect.provideService(SessionService.Service, session),
+              Effect.provideService(ProviderAccountProfiles.Service, profiles),
+            )
+          : undefined
+      if (resolved && (resolved.providerID !== input.model.providerID || resolved.modelID !== input.model.id))
+        return yield* Effect.fail(new Error("The resolved utility account does not match the final model"))
+      if (resolved && resolved.directory !== (yield* InstanceState.directory))
+        return yield* Effect.fail(new UtilityAccount.Failure("context-mismatch"))
+      const sessionID = resolved?.sourceSessionID ?? input.sessionID
       const binding =
-        input.model.providerID === "openai" && sessionID ? yield* session.binding(SessionID.make(sessionID)) : undefined
+        !resolved && input.model.providerID === "openai" ? yield* session.binding(SessionID.make(sessionID)) : undefined
       const profile = binding?.providers.openai
       const selected =
-        input.model.providerID === "openai"
-          ? resolveBinding(profile, ProviderAccountProfiles.enabled(), scope)
-          : undefined
+        resolved ??
+        (input.model.providerID === "openai" ? resolveBinding(profile, ProviderAccountProfiles.enabled()) : undefined)
       const profileID = selected?.mode === "profile" ? selected.profileID : undefined
       // kilocode_change end
       const [language, cfg, item, info] = yield* Effect.all(
@@ -132,7 +168,7 @@ const live: Layer.Layer<
           provider.getLanguage(input.model, profileID), // kilocode_change
           config.get(),
           provider.getProvider(input.model.providerID),
-          profile?.mode === "profile" ? Effect.succeed(undefined) : auth.get(input.model.providerID), // kilocode_change
+          profileID || profile?.mode === "profile" ? Effect.succeed(undefined) : auth.get(input.model.providerID), // kilocode_change
         ],
         { concurrency: "unbounded" },
       )
@@ -148,7 +184,8 @@ const live: Layer.Layer<
 
       // kilocode_change start - compact at the configured threshold before contacting the provider
       const tools = yield* Effect.promise(() => KiloToolSchema.sanitize(base.tools))
-      const isOpenaiOauth = item.id === "openai" && (profile?.mode === "profile" || info?.type === "oauth") // kilocode_change
+      const isOpenaiOauth =
+        item.id === "openai" && (profileID !== undefined || profile?.mode === "profile" || info?.type === "oauth") // kilocode_change
       const estimated: ModelMessage[] =
         isOpenaiOauth || isWorkflow
           ? [
@@ -323,7 +360,7 @@ const live: Layer.Layer<
 
       // Runtime seam: native is an opt-in adapter over @opencode-ai/llm. It
       // either returns a ready LLMEvent stream or a concrete fallback reason.
-      if (flags.experimentalNativeLlm) {
+      if (flags.experimentalNativeLlm && profileID === undefined && profile?.mode !== "profile") {
         const native = LLMNativeRuntime.stream({
           model: input.model,
           provider: item,
@@ -520,6 +557,7 @@ export const node = LayerNode.make({
     llmClient,
     RuntimeFlags.node,
     SessionService.node, // kilocode_change
+    ProviderAccountProfiles.node, // kilocode_change
   ],
 })
 

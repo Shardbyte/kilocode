@@ -6,7 +6,10 @@ import { AppRuntime } from "@/effect/app-runtime"
 import { Effect } from "effect"
 import * as Log from "@opencode-ai/core/util/log"
 import type { CommitMessageRequest, CommitMessageResponse, GitContext } from "./types"
-import { getGitContext } from "./git-context"
+import { getGitContext, validateRepoPath } from "./git-context"
+import { ProviderV2 } from "@opencode-ai/core/provider"
+import { ModelV2 } from "@opencode-ai/core/model"
+import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles"
 
 const log = Log.create({ service: "commit-message" })
 
@@ -21,10 +24,12 @@ export const CommitMessageRuntime = {
   context(repoPath: string, selectedFiles?: string[]) {
     return getGitContext(repoPath, selectedFiles)
   },
-  model() {
+  model(selected?: { providerID: string; modelID: string }) {
     return AppRuntime.runPromise(
       Provider.Service.use((svc) =>
         Effect.gen(function* () {
+          if (selected)
+            return yield* svc.getModel(ProviderV2.ID.make(selected.providerID), ModelV2.ID.make(selected.modelID))
           const ref = yield* svc.defaultModel()
           return (yield* svc.getSmallModel(ref.providerID)) ?? (yield* svc.getModel(ref.providerID, ref.modelID))
         }),
@@ -40,6 +45,32 @@ export const CommitMessageRuntime = {
       },
     )
   },
+  resolve(input: { model: { providerID: string; id: string }; context: CommitMessageRequest["accountContext"] }) {
+    return import("@/kilocode/provider/utility-account").then(({ UtilityAccount }) =>
+      AppRuntime.runPromise(
+        UtilityAccount.resolve({ operation: "commit-message", model: input.model, context: input.context }),
+      ),
+    )
+  },
+}
+
+export async function prepareCommitMessage() {
+  const model = await select()
+  const profilesEnabled = ProviderAccountProfiles.enabled()
+  return {
+    model: { providerID: model.providerID, modelID: model.id },
+    profilesEnabled,
+    requiresAccountContext: profilesEnabled && model.providerID === "openai",
+    allowedContextKinds:
+      profilesEnabled && model.providerID === "openai" ? (["legacy", "account"] as const) : (["legacy"] as const),
+  }
+}
+
+async function select(model?: CommitMessageRequest["model"]) {
+  return CommitMessageRuntime.model(model).catch(async () => {
+    const module = await import("@/kilocode/provider/utility-account")
+    throw new module.UtilityAccount.Failure("model-unavailable")
+  })
 }
 
 const SYSTEM_PROMPT = `You are an expert Git commit message generator that creates conventional commit messages based on staged changes. Analyze the provided git diff output and generate an appropriate conventional commit message following the specification.
@@ -156,6 +187,9 @@ function clean(text: string): string {
 const TIMEOUT_MS = 30_000
 
 export async function generateCommitMessage(request: CommitMessageRequest): Promise<CommitMessageResponse> {
+  const model = await select(request.model)
+  const utilityAccount = await CommitMessageRuntime.resolve({ model, context: request.accountContext })
+  await validateRepoPath(request.path, utilityAccount.directory)
   const ctx = await CommitMessageRuntime.context(request.path, request.selectedFiles)
   if (ctx.files.length === 0) {
     throw new NoChangesError()
@@ -165,8 +199,6 @@ export async function generateCommitMessage(request: CommitMessageRequest): Prom
     branch: ctx.branch,
     files: ctx.files.length,
   })
-
-  const model = await CommitMessageRuntime.model()
 
   const agent: Agent.Info = {
     name: "commit-message",
@@ -191,8 +223,8 @@ export async function generateCommitMessage(request: CommitMessageRequest): Prom
       {
         agent,
         user: {
-          id: "commit-message",
-          sessionID: "commit-message",
+          id: utilityAccount.id,
+          sessionID: utilityAccount.id,
           role: "user",
           model: {
             providerID: model.providerID,
@@ -205,30 +237,29 @@ export async function generateCommitMessage(request: CommitMessageRequest): Prom
         } as any,
         tools: {},
         model,
-        small: true,
+        small: !request.model,
         messages: [
           {
             role: "user" as const,
             content: userMessage,
           },
         ],
-        sessionID: "commit-message",
-        providerAccountContext: { kind: "commit-message" },
+        sessionID: utilityAccount.id,
+        utilityAccount,
         system: [],
         retries: 3,
       },
       controller.signal,
     )
 
-    log.info("generated", { message: result })
+    log.info("generated", { length: result.length })
     return { message: clean(result) }
   } catch (err) {
     if (controller.signal.aborted) {
       throw new Error("Commit message generation timed out after 30 seconds")
     }
-    const msg = err instanceof Error ? err.message : String(err)
-    log.error("generation failed", { error: msg })
-    throw new Error(`Failed to generate commit message: ${msg}`)
+    log.error("generation failed")
+    throw new Error("Failed to generate commit message")
   } finally {
     clearTimeout(timer)
   }

@@ -66,7 +66,7 @@ import { MarketplaceService } from "./services/marketplace"
 import type { RemoteStatusService } from "./services/RemoteStatusService"
 import { resolveProjectDirectory } from "./project-directory"
 import { seedSessionStatuses, seedSessionWakeups, clientSessionStatus } from "./session-status"
-import { normalizeEnhancePromptErrorMessage } from "./enhance-prompt-error"
+import { selectUtilityAccount } from "./services/utility-account"
 import { retry } from "./services/cli-backend/retry"
 import { integratedBrowserUseSystemChrome } from "./services/browser-automation/chrome-setting"
 import { removeAgent } from "./services/agent-removal"
@@ -1711,31 +1711,7 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
           break
         }
         case "enhancePrompt": {
-          const sdkClient = this.client
-          if (!sdkClient) {
-            this.postMessage({
-              type: "enhancePromptError",
-              error: "Not connected to CLI backend",
-              requestId: message.requestId,
-            })
-            break
-          }
-          void sdkClient.enhancePrompt
-            .enhance({ text: message.text }, { throwOnError: true })
-            .then(({ data }) => {
-              this.postMessage({ type: "enhancePromptResult", text: data.text, requestId: message.requestId })
-            })
-            .catch((err: unknown) => {
-              const raw = getErrorMessage(err) || "Failed to enhance prompt"
-              const msg = normalizeEnhancePromptErrorMessage(raw)
-              console.error("[Kilo New] KiloProvider: Failed to enhance prompt:", err)
-              vscode.window.showErrorMessage(`Enhance prompt failed: ${msg}`)
-              this.postMessage({
-                type: "enhancePromptError",
-                error: msg,
-                requestId: message.requestId,
-              })
-            })
+          void this.handleUtilityEnhance(message)
           break
         }
       }
@@ -2907,6 +2883,49 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
     })
     this.providersRefresh = done
     await done
+  }
+
+  private async handleUtilityEnhance(msg: Record<string, unknown>): Promise<void> {
+    const req = typeof msg.requestId === "string" ? msg.requestId : ""
+    const fail = () =>
+      this.postMessage({
+        type: "enhancePromptError",
+        error: "Could not enhance prompt. Check account selection and retry.",
+        requestId: req,
+      })
+    const client = this.client
+    if (!client || typeof msg.text !== "string") return fail()
+
+    const sid = msg.source === "chat" && typeof msg.sessionID === "string" ? msg.sessionID : undefined
+    if (sid && this.getCurrentSessionId() !== sid) return fail()
+    if (sid && this.routeSessionDirectory(sid) === null) return fail()
+    const dir = this.getWorkspaceDirectory(sid)
+    try {
+      const prepared = await client.enhancePrompt.prepare({ directory: dir }, { throwOnError: true })
+      const plan = prepared.data
+      if (sid && !plan.allowedContextKinds.includes("session")) return fail()
+      const session = sid ? { kind: "session" as const, sourceSessionID: sid } : undefined
+      const accountContext = session
+        ? session
+        : plan.requiresAccountContext
+          ? await (async () => {
+              const listed = await client.providerAccounts.list(
+                { provider: "openai", directory: dir },
+                { throwOnError: true },
+              )
+              return selectUtilityAccount(accountDTOs(listed.data.accounts), plan.allowedContextKinds)
+            })()
+          : undefined
+      if (plan.requiresAccountContext && !accountContext) return fail()
+      if (this.client !== client || (sid && this.getCurrentSessionId() !== sid)) return fail()
+      const { data } = await client.enhancePrompt.enhance(
+        { text: msg.text, directory: dir, model: plan.model, ...(accountContext ? { accountContext } : {}) },
+        { throwOnError: true },
+      )
+      this.postMessage({ type: "enhancePromptResult", text: data.text, requestId: req })
+    } catch {
+      fail()
+    }
   }
 
   private async handleProviderAccounts(msg: Record<string, unknown>): Promise<void> {

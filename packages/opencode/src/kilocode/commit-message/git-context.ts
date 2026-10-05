@@ -1,4 +1,6 @@
 import type { GitContext, FileChange } from "./types"
+import { realpath } from "node:fs/promises"
+import { resolve } from "node:path"
 
 const LOCK_FILES = new Set([
   // --- JavaScript / Node.js ---
@@ -136,6 +138,15 @@ export function git(args: string[], cwd: string): string {
     windowsHide: true, // kilocode_change - prevent cmd.exe flash on Windows
   })
   return result.stdout.toString().trimEnd()
+}
+
+export async function validateRepoPath(repoPath: string, routedDirectory: string): Promise<void> {
+  const routed = await realpath(routedDirectory).catch(() => "")
+  const requested = await realpath(resolve(repoPath)).catch(() => "")
+  const gitRoot = requested ? git(["rev-parse", "--show-toplevel"], requested) : ""
+  const root = await realpath(gitRoot).catch(() => "")
+  if (!routed || !requested || !root || root !== routed)
+    throw new Error("Repository path is outside the routed workspace")
 }
 
 export function parseNameStatus(output: string): Array<{ status: string; path: string }> {

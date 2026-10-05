@@ -35,6 +35,8 @@ import * as KiloReference from "@/kilocode/reference"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { LocationServiceMap, locationServiceMapLayer } from "@opencode-ai/core/location-services"
+import type { UtilityAccount } from "@/kilocode/provider/utility-account" // kilocode_change
+import type { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles" // kilocode_change
 // kilocode_change
 
 export const Info = Schema.Struct({
@@ -79,13 +81,15 @@ export interface Interface {
   readonly generate: (input: {
     description: string
     model?: { providerID: ProviderV2.ID; modelID: ModelV2.ID }
+    utilityContext?: Exclude<UtilityAccount.Context, { kind: "session" }> // kilocode_change
   }) => Effect.Effect<
     {
       identifier: string
       whenToUse: string
       systemPrompt: string
     },
-    Provider.DefaultModelError
+    Provider.DefaultModelError | UtilityAccount.Failure,
+    ProviderAccountProfiles.Service
   >
 }
 
@@ -133,7 +137,8 @@ const layer = Layer.effect(
           ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
         } satisfies Record<string, "allow" | "ask" | "deny">
 
-        const baseDefaults = Permission.fromConfig({ // kilocode_change
+        const baseDefaults = Permission.fromConfig({
+          // kilocode_change
           "*": "allow",
           doom_loop: "ask",
           external_directory: {
@@ -435,7 +440,7 @@ const layer = Layer.effect(
               native: false,
             }
           }
-        // kilocode_change end
+          // kilocode_change end
         }
 
         // Ensure Truncate.GLOB is allowed unless explicitly configured
@@ -534,19 +539,42 @@ const layer = Layer.effect(
       generate: Effect.fn("Agent.generate")(function* (input: {
         description: string
         model?: { providerID: ProviderV2.ID; modelID: ModelV2.ID }
+        utilityContext?: Exclude<UtilityAccount.Context, { kind: "session" }> // kilocode_change
       }) {
         const cfg = yield* config.get()
         const model = input.model ?? (yield* provider.defaultModel())
-        const resolved = yield* provider.getModel(model.providerID, model.modelID)
-        const language = yield* provider.getLanguage(resolved)
+        const { UtilityAccount } = yield* Effect.promise(() => import("@/kilocode/provider/utility-account"))
+        const resolved = yield* provider
+          .getModel(model.providerID, model.modelID)
+          .pipe(Effect.mapError(() => new UtilityAccount.Failure("account-unavailable"))) // kilocode_change
+        const authority = yield* UtilityAccount.standalone({
+          operation: "agent-generation",
+          model: { providerID: resolved.providerID, id: resolved.id },
+          ...(input.utilityContext && { context: input.utilityContext }),
+        }).pipe(
+          Effect.mapError((err) =>
+            err instanceof UtilityAccount.Failure ? err : new UtilityAccount.Failure("account-unavailable"),
+          ),
+        )
+        if (authority.mode === "profile" && resolved.api.npm !== "@ai-sdk/openai")
+          return yield* Effect.fail(new UtilityAccount.Failure("context-mismatch"))
+        const language = yield* provider
+          .getLanguage(resolved, authority.mode === "profile" ? authority.profileID : undefined)
+          .pipe(Effect.mapError(() => new UtilityAccount.Failure("account-unavailable"))) // kilocode_change
 
         const system = [PROMPT_GENERATE]
         yield* plugin.trigger("experimental.chat.system.transform", { model: resolved }, { system })
         const existing = yield* InstanceState.useEffect(state, (s) => s.list())
 
         // TODO: clean this up so provider specific logic doesnt bleed over
-        const authInfo = yield* auth.get(model.providerID).pipe(Effect.orDie)
-        const isOpenaiOauth = model.providerID === "openai" && authInfo?.type === "oauth"
+        const authInfo =
+          authority.mode === "profile"
+            ? undefined
+            : yield* auth
+                .get(resolved.providerID)
+                .pipe(Effect.mapError(() => new UtilityAccount.Failure("account-unavailable"))) // kilocode_change
+        const isOpenaiOauth =
+          resolved.providerID === "openai" && (authority.mode === "profile" || authInfo?.type === "oauth") // kilocode_change
 
         const params = {
           // kilocode_change start - enable telemetry with custom PostHog tracer
@@ -588,10 +616,12 @@ const layer = Layer.effect(
               if (part.type === "error") throw part.error
             }
             return result.object
-          })
+          }).pipe(Effect.mapError(() => new UtilityAccount.Failure("account-unavailable")))
         }
 
-        return yield* Effect.promise(() => generateObject(params).then((r) => r.object))
+        return yield* Effect.promise(() => generateObject(params).then((r) => r.object)).pipe(
+          Effect.mapError(() => new UtilityAccount.Failure("account-unavailable")),
+        )
       }),
     })
   }),

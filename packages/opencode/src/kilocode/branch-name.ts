@@ -113,7 +113,7 @@ export const generate = Effect.fn("BranchName.generate")(function* (input: {
       messages: [{ role: "user", content: `User messages, oldest to newest:\n\n${body}` }],
       sessionID: `branch-name:${input.sessionID}`,
       ...(model.providerID === "openai" && {
-        providerAccountContext: { kind: "branch-name" as const, sourceSessionID: input.sessionID },
+        providerAccountContext: { kind: "session" as const, sourceSessionID: input.sessionID },
       }),
       system: [],
       retries: 1,

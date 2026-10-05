@@ -901,8 +901,41 @@ object KiloCliDataParser {
         tryParseObject(raw)?.str("text")
             ?: throw IllegalArgumentException("Enhance prompt response is missing text")
 
-    fun buildEnhancePromptJson(text: String): String =
-        """{"text":${escape(text)}}"""
+    fun buildEnhancePromptJson(request: ai.kilocode.rpc.dto.EnhancePromptRequestDto): String =
+        buildString {
+            require(listOf(request.sourceSessionID != null, request.accountID != null, request.legacy).count { it } <= 1) {
+                "Conflicting enhancement account contexts are not allowed"
+            }
+            append("""{"text":${escape(request.text)},"model":{"providerID":${escape(request.providerID)},"modelID":${escape(request.modelID)}}""")
+            when {
+                request.sourceSessionID != null -> append(""", "accountContext":{"kind":"session","sourceSessionID":${escape(request.sourceSessionID.orEmpty())}}""")
+                request.accountID != null -> append(""", "accountContext":{"kind":"account","providerID":"openai","authMode":"chatgpt-oauth","accountID":${escape(request.accountID.orEmpty())}}""")
+                request.legacy -> append(""", "accountContext":{"kind":"legacy","providerID":"openai"}""")
+            }
+            append('}')
+        }
+
+    fun parseEnhancePromptOptions(raw: String, accountsRaw: String?): ai.kilocode.rpc.dto.EnhancePromptOptionsDto {
+        val root = Json.parseToJsonElement(raw).jsonObject
+        val model = root.getValue("model").jsonObject
+        val accounts = accountsRaw?.let { Json.parseToJsonElement(it).jsonObject["accounts"]?.jsonArray }
+            ?.mapNotNull { item ->
+                val account = item.jsonObject
+                if (account["provider"]?.jsonPrimitive?.contentOrNull != "openai") return@mapNotNull null
+                if (account["authMode"]?.jsonPrimitive?.contentOrNull != "chatgpt-oauth") return@mapNotNull null
+                val id = account["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                val label = account["label"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                ai.kilocode.rpc.dto.EnhancePromptAccountDto(id, label)
+            }.orEmpty()
+        return ai.kilocode.rpc.dto.EnhancePromptOptionsDto(
+            providerID = model.getValue("providerID").jsonPrimitive.content,
+            modelID = model.getValue("modelID").jsonPrimitive.content,
+            profilesEnabled = root.getValue("profilesEnabled").jsonPrimitive.booleanOrNull ?: false,
+            requiresAccountContext = root.getValue("requiresAccountContext").jsonPrimitive.booleanOrNull ?: false,
+            allowedContextKinds = root.getValue("allowedContextKinds").jsonArray.map { it.jsonPrimitive.content },
+            accounts = accounts,
+        )
+    }
 
     /**
      * Build the JSON body for `POST /session/{id}/prompt_async`.

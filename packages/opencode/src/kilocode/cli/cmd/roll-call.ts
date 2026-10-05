@@ -5,6 +5,9 @@ import { ProviderTransform } from "../../../provider/transform"
 import { cmd } from "../../../cli/cmd/cmd"
 import { UI } from "../../../cli/ui"
 import { randomUUID } from "crypto"
+import { pick as pickAccount } from "@/kilocode/cli/utility-account"
+import type { UtilityAccount } from "@/kilocode/provider/utility-account"
+import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles"
 
 // Keep the top-level import graph light: this module is registered eagerly at CLI
 // startup, so implementation dependencies (provider service, AppRuntime, the `ai`
@@ -17,12 +20,14 @@ function loadDeps() {
     import("../../../effect/app-runtime"),
     import("../../../provider/provider"),
     import("../../../effect/runtime-flags"),
+    import("../../../kilocode/provider/utility-account"),
     import("ai"),
     import("../../provider/opencode-session-headers"),
-  ]).then(([runtime, provider, flags, ai, headers]) => ({
+  ]).then(([runtime, provider, flags, utility, ai, headers]) => ({
     AppRuntime: runtime.AppRuntime,
     Provider: provider.Provider,
     RuntimeFlags: flags.RuntimeFlags,
+    UtilityAccount: utility.UtilityAccount,
     generateText: ai.generateText,
     opencodeSessionHeaders: headers.opencodeSessionHeaders,
   }))
@@ -35,6 +40,14 @@ function deps() {
 const HEADERS = ["Model", "Access", "Snippet", "Latency"]
 const PADDING = 9
 
+export function probeContext(providerID: string, context: UtilityAccount.Context | undefined) {
+  return providerID === "openai" ? context : undefined
+}
+
+export function invalidContext(targets: string[], explicit: boolean) {
+  return explicit && !targets.includes("openai")
+}
+
 const tty = process.stderr.isTTY ?? false
 
 function color(style: string): string {
@@ -42,7 +55,12 @@ function color(style: string): string {
 }
 
 function sanitize(text: string): string {
-  return text.replace(/\x1b\[[0-9;]*m/g, "").replace(/[\x00-\x1f\x7f]/g, "")
+  return text
+    .replace(/\x1b\[[0-9;]*m/g, "")
+    .replace(/[\x00-\x1f\x7f]/g, "")
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [redacted]")
+    .replace(/\b(?:sk-(?:proj-)?|sess-|eyJ)[A-Za-z0-9._~-]{12,}/g, "[redacted]")
+    .replace(/((?:access|refresh)_token["'=:\s]+)[^\s,"'}]+/gi, "$1[redacted]")
 }
 
 function truncate(text: string, max: number): string {
@@ -121,6 +139,8 @@ export const RollCallCommand = cmd({
         default: false,
         describe: "Suppress progress and decoration",
       })
+      .option("account", { type: "string", describe: "OpenAI account ID for matching OpenAI models" })
+      .option("legacy-auth", { type: "boolean", default: false, describe: "use legacy OpenAI authentication" })
       .option("output", {
         type: "string",
         choices: ["table", "json", "md"],
@@ -137,6 +157,8 @@ export const RollCallCommand = cmd({
       output: args.output === "json" || args.output === "md" ? args.output : "table",
       verbose: args.verbose,
       quiet: args.quiet,
+      account: args.account,
+      legacyAuth: args["legacy-auth"],
     })
   },
 })
@@ -219,6 +241,22 @@ export async function handle(args: ArgumentsCamelCase) {
           .map(([modelID, model]) => ({ providerID, modelID, model })),
       )
 
+      if (
+        invalidContext(
+          models.map((item) => item.providerID),
+          Boolean(args.account || args.legacyAuth),
+        )
+      ) {
+        UI.error("OpenAI account context cannot be used for a filter with no OpenAI models")
+        process.exitCode = 1
+        return
+      }
+      if (args.account && args.legacyAuth) {
+        UI.error("--account and --legacy-auth cannot be used together")
+        process.exitCode = 1
+        return
+      }
+
       if (models.length === 0) {
         if (!args.quiet && !structured)
           UI.println(`${color(UI.Style.TEXT_WARNING)}No models to test after filtering.${color(UI.Style.TEXT_NORMAL)}`)
@@ -227,6 +265,39 @@ export async function handle(args: ArgumentsCamelCase) {
         if (structured) return
         process.exitCode = 1
         return
+      }
+
+      const { AppRuntime, UtilityAccount } = await deps()
+      const context = models.some((item) => item.providerID === "openai")
+        ? await pickAccount({
+            accounts: ProviderAccountProfiles.enabled()
+              ? await AppRuntime.runPromise(
+                  ProviderAccountProfiles.Service.use((profiles) => profiles.list("openai", "chatgpt-oauth")),
+                ).catch(() => {
+                  throw new UtilityAccount.Failure("account-unavailable")
+                })
+              : [],
+            accountID: args.account,
+            legacy: args.legacyAuth ?? false,
+            interactive: process.stdin.isTTY ?? false,
+          })
+        : undefined
+      const auth = new Map<string, UtilityAccount.Identity>()
+      for (const item of models) {
+        if (item.providerID !== "openai") continue
+        auth.set(
+          `${item.providerID}/${item.modelID}`,
+          await AppRuntime.runPromise(
+            UtilityAccount.resolve({
+              operation: "roll-call",
+              model: { providerID: item.providerID, id: item.modelID },
+              ...(probeContext(item.providerID, context) && { context: probeContext(item.providerID, context) }),
+            }),
+          ).catch((err) => {
+            if (err instanceof UtilityAccount.Failure) throw err
+            throw new UtilityAccount.Failure("account-unavailable")
+          }),
+        )
       }
 
       if (!args.quiet && !structured) {
@@ -240,7 +311,7 @@ export async function handle(args: ArgumentsCamelCase) {
       const run = async (item: (typeof models)[0]) => {
         const name = `${item.providerID}/${item.modelID}`
         const start = Date.now()
-        const result = await call(item.model, args.prompt, args.timeout, start)
+        const result = await call(item.model, args.prompt, args.timeout, start, auth.get(name))
 
         results.push({ model: name, ...result })
 
@@ -310,13 +381,35 @@ async function call(
   prompt: string,
   timeout: number,
   start: number,
+  authority?: UtilityAccount.Identity,
 ): Promise<Omit<Result, "model">> {
   try {
-    const { AppRuntime, RuntimeFlags, generateText, opencodeSessionHeaders } = await deps()
-    const language = await lang(model)
-    const sessionID = randomUUID()
+    const { AppRuntime, Provider, RuntimeFlags, UtilityAccount, generateText, opencodeSessionHeaders } = await deps()
+    const auth =
+      authority ??
+      (model.providerID === "openai"
+        ? await AppRuntime.runPromise(
+            UtilityAccount.resolve({
+              operation: "roll-call",
+              model: { providerID: model.providerID, id: model.id },
+            }),
+          )
+        : undefined)
+    if (auth?.mode === "profile" && model.api.npm !== "@ai-sdk/openai")
+      throw new UtilityAccount.Failure("context-mismatch")
+    const language = auth
+      ? await AppRuntime.runPromise(
+          Provider.Service.use((svc) => svc.getLanguage(model, auth.mode === "profile" ? auth.profileID : undefined)),
+        )
+      : await lang(model)
+    const sessionID = auth?.id ?? randomUUID()
     const options = ProviderTransform.options({ model, sessionID })
-    const providerOptions = ProviderTransform.providerOptions(model, options)
+    const providerOptions = ProviderTransform.providerOptions(
+      model,
+      auth?.mode === "profile"
+        ? { ...options, instructions: "Reply briefly to confirm model connectivity.", store: false }
+        : options,
+    )
     const maxOutputTokens = await AppRuntime.runPromise(
       RuntimeFlags.Service.useSync((flags) => outputLimit(model, flags.outputTokenMax)),
     )
@@ -350,8 +443,8 @@ async function call(
       access: false,
       snippet: "",
       latency: Date.now() - start,
-      errorType: err.type,
-      errorMessage: err.message,
+      errorType: err.type === "timeout" || err.type === "api_error" ? err.type : "unknown",
+      errorMessage: err.type === "timeout" ? "The operation timed out." : "The model request failed.",
     }
   }
 }
@@ -387,4 +480,6 @@ type ArgumentsCamelCase = {
   verbose: boolean
   quiet: boolean
   list?: typeof list
+  account?: string
+  legacyAuth?: boolean
 }

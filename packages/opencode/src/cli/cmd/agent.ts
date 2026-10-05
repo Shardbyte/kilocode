@@ -9,7 +9,11 @@ import matter from "gray-matter"
 import { EOL } from "os"
 import type { Argv } from "yargs"
 import { Effect } from "effect"
-import { effectCmd } from "../effect-cmd"
+import { CliError, effectCmd } from "../effect-cmd" // kilocode_change
+// kilocode_change start
+import { pick as pickAccount } from "@/kilocode/cli/utility-account"
+import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles"
+// kilocode_change end
 
 type AgentMode = "all" | "primary" | "subagent"
 
@@ -57,7 +61,17 @@ const AgentCreateCommand = effectCmd({
         type: "string",
         alias: ["m"],
         describe: "model to use in the format of provider/model",
-      }),
+      }) // kilocode_change
+      // kilocode_change start
+      .option("account", {
+        type: "string",
+        describe: "OpenAI account ID to use for generation",
+      })
+      .option("legacy-auth", {
+        type: "boolean",
+        default: false,
+        describe: "use legacy OpenAI authentication for generation",
+      }), // kilocode_change end
   handler: Effect.fn("Cli.agent.create")(function* (args) {
     const { InstanceRef } = yield* Effect.promise(() => import("@/effect/instance-ref"))
     const { Agent } = yield* Effect.promise(() => import("../../agent/agent"))
@@ -66,6 +80,20 @@ const AgentCreateCommand = effectCmd({
     if (!maybeCtx) return yield* Effect.die("InstanceRef not provided")
     const ctx = maybeCtx
     const agentSvc = yield* Agent.Service
+    // kilocode_change start
+    const providerSvc = yield* Provider.Service
+    const ref = args.model
+      ? Provider.parseModel(args.model)
+      : yield* providerSvc
+          .defaultModel()
+          .pipe(Effect.mapError(() => new CliError({ message: "No default model is available" })))
+    const profiles = yield* ProviderAccountProfiles.Service
+    const accounts = ProviderAccountProfiles.enabled()
+      ? yield* profiles
+          .list("openai", "chatgpt-oauth")
+          .pipe(Effect.mapError(() => new CliError({ message: "Unable to list OpenAI accounts" })))
+      : []
+    // kilocode_change end
     const runLocalEffect = <A, E>(effect: Effect.Effect<A, E>) =>
       Effect.runPromise(effect.pipe(Effect.provideService(InstanceRef, ctx)))
     yield* Effect.promise(async () => {
@@ -131,12 +159,29 @@ const AgentCreateCommand = effectCmd({
       // Generate agent
       const spinner = prompts.spinner()
       spinner.start("Generating agent configuration...")
-      const model = args.model ? Provider.parseModel(args.model) : undefined
-      const generated = await runLocalEffect(agentSvc.generate({ description, model })).catch((error) => {
+      // kilocode_change start
+      const context =
+        ref.providerID === "openai" || args.account || args["legacy-auth"]
+          ? await pickAccount({
+              accounts,
+              accountID: args.account,
+              legacy: args["legacy-auth"] ?? false,
+              interactive: !isFullyNonInteractive,
+            }).catch((error) => {
+              spinner.stop(error.message, 1)
+              throw new UI.CancelledError()
+            })
+          : undefined
+      const generated = await runLocalEffect(
+        agentSvc
+          .generate({ description, model: ref, utilityContext: context })
+          .pipe(Effect.provideService(ProviderAccountProfiles.Service, profiles)),
+      ).catch((error) => {
         spinner.stop(`LLM failed to generate agent: ${error.message}`, 1)
         if (isFullyNonInteractive) process.exit(1)
         throw new UI.CancelledError()
       })
+      // kilocode_change end
       spinner.stop(`Agent ${generated.identifier} generated`)
 
       // Select permissions to allow

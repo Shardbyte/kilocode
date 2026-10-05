@@ -340,6 +340,7 @@ export const layer = Layer.effect(
           tools: {},
           model: mdl,
           sessionID: KiloSessionPrompt.titleID(input.session.id), // kilocode_change - isolate title requests from the agent task
+          providerAccountContext: { kind: "session", sourceSessionID: input.session.id }, // kilocode_change - synthetic title ID is not binding authority
           retries: 2,
           messages: built.messages,
         })

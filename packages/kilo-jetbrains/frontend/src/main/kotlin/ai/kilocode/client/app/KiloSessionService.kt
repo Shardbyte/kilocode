@@ -10,6 +10,8 @@ import ai.kilocode.rpc.dto.BackgroundJobDto
 import ai.kilocode.rpc.dto.ChatEventDto
 import ai.kilocode.rpc.dto.CloudSessionListDto
 import ai.kilocode.rpc.dto.DiffFileDto
+import ai.kilocode.rpc.dto.EnhancePromptOptionsDto
+import ai.kilocode.rpc.dto.EnhancePromptRequestDto
 import ai.kilocode.rpc.dto.MessageWithPartsDto
 import ai.kilocode.rpc.dto.ModelSelectionDto
 import ai.kilocode.rpc.dto.PermissionAlwaysRulesDto
@@ -300,8 +302,11 @@ class KiloSessionService internal constructor(
 
     // ------ Chat ops (explicit session ID) ------
 
-    suspend fun enhancePrompt(dir: String, text: String): String =
-        call { enhancePrompt(dir, text) }
+    suspend fun prepareEnhancePrompt(dir: String): EnhancePromptOptionsDto =
+        call { prepareEnhancePrompt(dir) }
+
+    suspend fun enhancePrompt(dir: String, request: EnhancePromptRequestDto): String =
+        call { enhancePrompt(dir, request) }
 
     /** Send a prompt to a session. */
     suspend fun prompt(id: String, dir: String, dto: PromptDto) {

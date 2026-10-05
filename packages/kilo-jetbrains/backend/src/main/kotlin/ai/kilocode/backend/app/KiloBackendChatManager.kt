@@ -11,6 +11,8 @@ import ai.kilocode.rpc.dto.PermissionReplyDto
 import ai.kilocode.rpc.dto.PermissionRequestDto
 import ai.kilocode.rpc.dto.PartDto
 import ai.kilocode.rpc.dto.PromptDto
+import ai.kilocode.rpc.dto.EnhancePromptOptionsDto
+import ai.kilocode.rpc.dto.EnhancePromptRequestDto
 import ai.kilocode.rpc.dto.QuestionReplyDto
 import ai.kilocode.rpc.dto.QuestionRequestDto
 import kotlinx.coroutines.CoroutineScope
@@ -23,6 +25,8 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -147,25 +151,48 @@ class KiloBackendChatManager(
 
     // ------ prompt ------
 
-    suspend fun enhancePrompt(dir: String, text: String): String {
+    suspend fun prepareEnhancePrompt(dir: String): EnhancePromptOptionsDto {
         val http = requireClient()
         val url = requireBase()
-        val body = KiloCliDataParser.buildEnhancePromptJson(text)
-        val request = Request.Builder()
-            .url("$url/enhance-prompt?directory=${encode(dir)}")
-            .post(body.toRequestBody(JSON_TYPE))
-            .build()
+        val query = "directory=${encode(dir)}"
+        val raw = post(http, "$url/enhance-prompt/prepare?$query", "{}")
+        val root = kotlinx.serialization.json.Json.parseToJsonElement(raw).jsonObject
+        val kinds = root["allowedContextKinds"]?.jsonArray?.map { it.jsonPrimitive.content }.orEmpty()
+        val accounts = if ("account" in kinds) {
+            val result = get(http, "$url/provider-accounts?provider=openai&authMode=chatgpt-oauth&$query")
+            result
+        } else null
+        return KiloCliDataParser.parseEnhancePromptOptions(raw, accounts)
+    }
+
+    suspend fun enhancePrompt(dir: String, request: EnhancePromptRequestDto): String {
+        val http = requireClient()
+        val url = requireBase()
+        val body = KiloCliDataParser.buildEnhancePromptJson(request)
+        val raw = post(http, "$url/enhance-prompt?directory=${encode(dir)}", body)
+        return KiloCliDataParser.parseEnhancedPrompt(raw)
+    }
+
+    private suspend fun post(http: OkHttpClient, target: String, body: String): String {
+        val request = Request.Builder().url(target).post(body.toRequestBody(JSON_TYPE)).build()
         val call = http.newCall(request)
         call.timeout().timeout(ENHANCE_TIMEOUT_MINUTES, TimeUnit.MINUTES)
-
         return call.await().use { response ->
             val raw = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                log.warn("enhance prompt failed: HTTP ${response.code}")
-                raw.takeIf { it.isNotBlank() }?.let { log.debug { "kind=enhancePrompt error=${ChatLogSummary.body(it)}" } }
-                throw RuntimeException("Enhance prompt failed: HTTP ${response.code}")
+                log.warn("enhance prompt request failed: HTTP ${response.code}")
+                throw RuntimeException("Enhance prompt unavailable (HTTP ${response.code}). Check the configured model and account settings.")
             }
-            KiloCliDataParser.parseEnhancedPrompt(raw)
+            raw
+        }
+    }
+
+    private suspend fun get(http: OkHttpClient, target: String): String {
+        val request = Request.Builder().url(target).get().build()
+        return http.newCall(request).await().use { response ->
+            val raw = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw RuntimeException("Could not list OpenAI accounts (HTTP ${response.code}). Check account settings.")
+            raw
         }
     }
 

@@ -12,11 +12,16 @@ type Binding =
   | { mode: "profile"; profileID: string; authMode: string }
   | { mode: "legacy" }
   | { mode: "unbound"; reason: string }
-export type UtilityAccountContext = { kind: "branch-name"; sourceSessionID: string } | { kind: "commit-message" }
+export type UtilityAccountContext =
+  | { kind: "session"; sourceSessionID: string }
+  | { kind: "account"; providerID: "openai"; authMode: "chatgpt-oauth"; accountID: string }
+  | { kind: "legacy"; providerID: string }
+  | { kind: "branch-name"; sourceSessionID: string }
+  | { kind: "commit-message" }
 
 export function bindingSessionID(context: UtilityAccountContext | undefined, sessionID: string) {
-  if (context?.kind === "branch-name") return context.sourceSessionID
-  if (context?.kind === "commit-message") return undefined
+  if (context?.kind === "branch-name" || context?.kind === "session") return context.sourceSessionID
+  if (context?.kind === "commit-message" || context?.kind === "account" || context?.kind === "legacy") return undefined
   return sessionID
 }
 type Ports = {

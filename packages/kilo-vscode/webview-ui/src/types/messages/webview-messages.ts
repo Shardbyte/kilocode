@@ -1253,6 +1253,8 @@ export interface EnhancePromptRequest {
   type: "enhancePrompt"
   text: string
   requestId: string
+  source: "chat" | "new-worktree"
+  sessionID?: string
 }
 
 // Open the standalone changes viewer tab from the sidebar
