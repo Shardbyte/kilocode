@@ -16,6 +16,7 @@
 | `kilo models [provider]` | list all available models |
 | `kilo roll-call <filter>` | batch-test text models matching a filter for connectivity and latency |
 | `kilo profile` | show Kilo account profile |
+| `kilo accounts` | manage provider account profiles |
 | `kilo stats` | show token usage and cost statistics |
 | `kilo export [sessionID]` | export session data as JSON |
 | `kilo import <file>` | import session data from JSON file or URL |

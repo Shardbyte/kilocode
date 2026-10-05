@@ -42276,6 +42276,12 @@
           "installed": {
             "$ref": "#/components/schemas/MarketplaceInstalledMetadata"
           },
+          "filenames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "errors": {
             "type": "array",
             "items": {

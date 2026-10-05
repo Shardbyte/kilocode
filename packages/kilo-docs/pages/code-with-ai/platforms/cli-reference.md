@@ -705,6 +705,164 @@ Options:
   --json     output profile as JSON  [boolean] [default: false]
 ```
 
+## kilo accounts
+
+```
+manage provider account profiles
+
+Commands:
+  kilo accounts list                        list saved provider accounts
+  kilo accounts add <label>                 add a provider account with OAuth  [aliases: login]
+  kilo accounts default <account>           select the default for new sessions
+  kilo accounts rename <account> <label>    rename a provider account
+  kilo accounts usage <account>             show cached provider account usage
+  kilo accounts refresh <account>           refresh provider account usage
+  kilo accounts auth-state <account>        show provider account credential health
+  kilo accounts reauth <account>            reauthenticate a provider account
+  kilo accounts remove <account>            remove a provider account
+  kilo accounts session <session>           inspect a session provider account binding
+  kilo accounts assign <session> <account>  assign a provider account to a session
+
+Options:
+  --help     Show help  [boolean]
+  --version  Show version number  [boolean]
+```
+
+### kilo accounts list
+
+```
+list saved provider accounts
+
+Options:
+  --help       Show help  [boolean]
+  --version    Show version number  [boolean]
+  --json       output as JSON  [boolean] [default: false]
+  --directory  project directory for this operation  [string]
+```
+
+### kilo accounts add
+
+```
+add a provider account with OAuth
+
+Options:
+  --help       Show help  [boolean]
+  --version    Show version number  [boolean]
+  --json       output as JSON  [boolean] [default: false]
+  --directory  project directory for this operation  [string]
+```
+
+### kilo accounts default
+
+```
+select the default for new sessions
+
+Options:
+  --help       Show help  [boolean]
+  --version    Show version number  [boolean]
+  --json       output as JSON  [boolean] [default: false]
+  --directory  project directory for this operation  [string]
+```
+
+### kilo accounts rename
+
+```
+rename a provider account
+
+Options:
+  --help       Show help  [boolean]
+  --version    Show version number  [boolean]
+  --json       output as JSON  [boolean] [default: false]
+  --directory  project directory for this operation  [string]
+```
+
+### kilo accounts usage
+
+```
+show cached provider account usage
+
+Options:
+  --help       Show help  [boolean]
+  --version    Show version number  [boolean]
+  --json       output as JSON  [boolean] [default: false]
+  --directory  project directory for this operation  [string]
+```
+
+### kilo accounts refresh
+
+```
+refresh provider account usage
+
+Options:
+  --help       Show help  [boolean]
+  --version    Show version number  [boolean]
+  --json       output as JSON  [boolean] [default: false]
+  --directory  project directory for this operation  [string]
+```
+
+### kilo accounts auth-state
+
+```
+show provider account credential health
+
+Options:
+  --help       Show help  [boolean]
+  --version    Show version number  [boolean]
+  --json       output as JSON  [boolean] [default: false]
+  --directory  project directory for this operation  [string]
+```
+
+### kilo accounts reauth
+
+```
+reauthenticate a provider account
+
+Options:
+  --help       Show help  [boolean]
+  --version    Show version number  [boolean]
+  --json       output as JSON  [boolean] [default: false]
+  --directory  project directory for this operation  [string]
+```
+
+### kilo accounts remove
+
+```
+remove a provider account
+
+Options:
+  --help       Show help  [boolean]
+  --version    Show version number  [boolean]
+  --json       output as JSON  [boolean] [default: false]
+  --directory  project directory for this operation  [string]
+  --yes        explicitly confirm removal without a prompt  [boolean]
+```
+
+### kilo accounts session
+
+```
+inspect a session provider account binding
+
+Options:
+  --help       Show help  [boolean]
+  --version    Show version number  [boolean]
+  --json       output as JSON  [boolean] [default: false]
+  --directory  project directory for this operation  [string]
+```
+
+### kilo accounts assign
+
+```
+assign a provider account to a session
+
+Options:
+  --help       Show help  [boolean]
+  --version    Show version number  [boolean]
+  --json       output as JSON  [boolean] [default: false]
+  --directory  project directory for this operation  [string]
+  --repair     request repair of an unavailable binding  [boolean]
+  --yes        explicitly confirm unavailable-account repair without a prompt  [boolean]
+```
+
 ## kilo stats
 
 ```
@@ -789,9 +947,9 @@ manage pull requests
 
 Commands:
   kilo pr checkout <number>  fetch and checkout a GitHub PR branch, then run kilo
-  kilo pr link <url>         link the current worktree to a pull request
-  kilo pr unlink             clear the linked pull request
-  kilo pr status             show the linked pull request
+  kilo pr link <url>         link a session to a pull request
+  kilo pr unlink             clear a session's linked pull request
+  kilo pr status             show a session's linked pull request
 
 Options:
   --help     Show help  [boolean]
@@ -814,34 +972,37 @@ Options:
 ### kilo pr link
 
 ```
-link the current worktree to a pull request
+link a session to a pull request
 
 Positionals:
   url  PR URL to link  [string]
 
 Options:
-  --help     Show help  [boolean]
-  --version  Show version number  [boolean]
+      --help     Show help  [boolean]
+      --version  Show version number  [boolean]
+  -s, --session  session id to apply the PR link to  [string]
 ```
 
 ### kilo pr unlink
 
 ```
-clear the linked pull request
+clear a session's linked pull request
 
 Options:
-  --help     Show help  [boolean]
-  --version  Show version number  [boolean]
+      --help     Show help  [boolean]
+      --version  Show version number  [boolean]
+  -s, --session  session id to apply the PR link to  [string]
 ```
 
 ### kilo pr status
 
 ```
-show the linked pull request
+show a session's linked pull request
 
 Options:
-  --help     Show help  [boolean]
-  --version  Show version number  [boolean]
+      --help     Show help  [boolean]
+      --version  Show version number  [boolean]
+  -s, --session  session id to apply the PR link to  [string]
 ```
 
 ## kilo session
