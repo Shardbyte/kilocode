@@ -24,6 +24,11 @@ import { EventV2 } from "@opencode-ai/core/event"
 import { Wildcard } from "@/util/wildcard"
 import { SessionID } from "@/session/schema"
 import { Auth } from "@/auth"
+import { Session as SessionService } from "@/session/session" // kilocode_change
+import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles" // kilocode_change
+// kilocode_change start
+import { bindingSessionID, resolveBinding, type UtilityAccountContext } from "@/kilocode/provider/codex-profile" // kilocode_change
+// kilocode_change end
 // kilocode_change start
 import { InstanceState } from "@/effect/instance-state"
 import { KiloSession } from "@/kilocode/session"
@@ -59,6 +64,7 @@ export type StreamInput = {
   toolChoice?: "auto" | "required" | "none"
   preflight?: boolean // kilocode_change - enable proactive threshold compaction for normal session turns
   reportedContextTokens?: number // kilocode_change - provider-reported context size from the last finished turn, source of truth for the output cap
+  providerAccountContext?: UtilityAccountContext // kilocode_change - explicit Kilo utility account scope; never an auth override
 }
 
 export type StreamRequest = StreamInput & {
@@ -84,6 +90,7 @@ const live: Layer.Layer<
   | EventV2Bridge.Service
   | LLMClientService
   | RuntimeFlags.Service
+  | SessionService.Service // kilocode_change
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -95,6 +102,7 @@ const live: Layer.Layer<
     const events = yield* EventV2Bridge.Service
     const llmClient = yield* LLMClient.Service
     const flags = yield* RuntimeFlags.Service
+    const session = yield* SessionService.Service // kilocode_change
 
     const run = Effect.fn("LLM.run")(function* (input: StreamRequest) {
       const l = log.clone().tag("providerID", input.model.providerID).tag("modelID", input.model.id) // kilocode_change
@@ -107,12 +115,24 @@ const live: Layer.Layer<
         mode: input.agent.mode,
       })
 
+      // kilocode_change start - profile-bound sessions never infer legacy auth from absent state
+      const scope = input.providerAccountContext
+      const sessionID = bindingSessionID(scope, input.sessionID)
+      const binding =
+        input.model.providerID === "openai" && sessionID ? yield* session.binding(SessionID.make(sessionID)) : undefined
+      const profile = binding?.providers.openai
+      const selected =
+        input.model.providerID === "openai"
+          ? resolveBinding(profile, ProviderAccountProfiles.enabled(), scope)
+          : undefined
+      const profileID = selected?.mode === "profile" ? selected.profileID : undefined
+      // kilocode_change end
       const [language, cfg, item, info] = yield* Effect.all(
         [
-          provider.getLanguage(input.model),
+          provider.getLanguage(input.model, profileID), // kilocode_change
           config.get(),
           provider.getProvider(input.model.providerID),
-          auth.get(input.model.providerID),
+          profile?.mode === "profile" ? Effect.succeed(undefined) : auth.get(input.model.providerID), // kilocode_change
         ],
         { concurrency: "unbounded" },
       )
@@ -128,7 +148,7 @@ const live: Layer.Layer<
 
       // kilocode_change start - compact at the configured threshold before contacting the provider
       const tools = yield* Effect.promise(() => KiloToolSchema.sanitize(base.tools))
-      const isOpenaiOauth = item.id === "openai" && info?.type === "oauth"
+      const isOpenaiOauth = item.id === "openai" && (profile?.mode === "profile" || info?.type === "oauth") // kilocode_change
       const estimated: ModelMessage[] =
         isOpenaiOauth || isWorkflow
           ? [
@@ -141,10 +161,7 @@ const live: Layer.Layer<
           : base.messages
       const preflight = input.preflight === true && KiloSessionOverflow.enabled({ cfg, model: input.model })
       const cap = KiloLLM.needsEstimate({ model: input.model, configured: base.params.maxOutputTokens })
-      const usage =
-        cap || preflight
-          ? KiloSessionOverflow.measure({ messages: estimated, tools })
-          : undefined
+      const usage = cap || preflight ? KiloSessionOverflow.measure({ messages: estimated, tools }) : undefined
       const maxOutputTokens = KiloLLM.capOutputTokens({
         model: input.model,
         messages: estimated,
@@ -502,6 +519,7 @@ export const node = LayerNode.make({
     EventV2Bridge.node,
     llmClient,
     RuntimeFlags.node,
+    SessionService.node, // kilocode_change
   ],
 })
 

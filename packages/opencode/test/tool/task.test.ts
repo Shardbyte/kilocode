@@ -11,6 +11,12 @@ import { Config } from "@/config/config"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { Session } from "@/session/session"
+import { SessionBinding } from "@opencode-ai/core/kilocode/session-binding" // kilocode_change
+import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles" // kilocode_change
+import { EventV2 } from "@opencode-ai/core/event" // kilocode_change
+import { EventTable } from "@opencode-ai/core/event/sql" // kilocode_change
+import { SessionTable } from "@opencode-ai/core/session/sql" // kilocode_change
+import { and, asc, eq } from "drizzle-orm" // kilocode_change
 import { MessageV2 } from "@/session/message-v2" // kilocode_change
 import type { SessionPrompt } from "../../src/session/prompt"
 import { MessageID, PartID, SessionID } from "../../src/session/schema" // kilocode_change - SessionID used by cost propagation tests
@@ -43,9 +49,12 @@ const layer = (flags: Partial<RuntimeFlags.Info> = {}) =>
       Agent.node,
       BackgroundJob.node,
       EventV2Bridge.node,
+      EventV2.node, // kilocode_change
       Config.node,
       CrossSpawnSpawner.node,
       Session.node,
+      ProviderAccountProfiles.node, // kilocode_change
+      SessionBinding.node, // kilocode_change
       SessionProjector.node,
       SessionRunState.node,
       SessionDrain.node, // kilocode_change
@@ -62,6 +71,36 @@ const layer = (flags: Partial<RuntimeFlags.Info> = {}) =>
 
 const it = testEffect(layer())
 const background = it // kilocode_change - background subagents are enabled by default
+
+// kilocode_change start - provider binding regression fixtures
+const secret = (tag: string): ProviderAccountProfiles.Secret => ({
+  access: `access-${tag}`,
+  refresh: `refresh-${tag}`,
+  expires: 1_900_000_000_000,
+  accountID: `remote-${tag}`,
+})
+
+const legacyFixture = Effect.fn("TaskToolTest.legacyFixture")(function* (sessionID: SessionID) {
+  const db = yield* Database.Service
+  yield* db.db.update(SessionTable).set({ metadata: null }).where(eq(SessionTable.id, sessionID)).run()
+  const row = yield* db.db
+    .select()
+    .from(EventTable)
+    .where(
+      and(
+        eq(EventTable.aggregate_id, sessionID),
+        eq(EventTable.type, EventV2.versionedType(SessionV1.Event.Created.type, 1)),
+      ),
+    )
+    .get()
+  if (!row) throw new Error("expected old session Created event")
+  const data = structuredClone(row.data)
+  const info = data.info as Record<string, unknown>
+  delete info.metadata
+  yield* db.db.update(EventTable).set({ data }).where(eq(EventTable.id, row.id)).run()
+})
+// kilocode_change end
+
 const disabled = testEffect(layer({ experimentalBackgroundSubagents: false })) // kilocode_change
 
 function defer<T>() {
@@ -101,6 +140,281 @@ const seed = Effect.fn("TaskToolTest.seed")(function* (title = "Pinned") {
   yield* session.updateMessage(assistant)
   return { chat, assistant }
 })
+
+// kilocode_change start - session provider-binding lifecycle regression coverage
+it.instance(
+  "session creation snapshots the default into the durable Created event and forks inherit that snapshot",
+  () =>
+    Effect.gen(function* () {
+      const before = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+      process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          if (before === undefined) delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+          else process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = before
+        }),
+      )
+      const profiles = yield* ProviderAccountProfiles.Service
+      const first = yield* profiles.create({
+        provider: "openai",
+        authMode: "chatgpt-oauth",
+        label: "First",
+        credential: secret("first"),
+      })
+      yield* profiles.selectDefault("openai", "chatgpt-oauth", first.id)
+      const sessions = yield* Session.Service
+      const second = yield* profiles.create({
+        provider: "openai",
+        authMode: "chatgpt-oauth",
+        label: "Second",
+        credential: secret("second"),
+      })
+      const db = yield* Database.Service
+      const events = yield* EventV2.Service
+      const change = { active: true }
+      yield* events.project(SessionV1.Event.Created, () =>
+        Effect.gen(function* () {
+          if (!change.active) return
+          change.active = false
+          yield* profiles.selectDefault("openai", "chatgpt-oauth", second.id).pipe(Effect.orDie)
+        }),
+      )
+      const parent = yield* sessions.create({
+        metadata: {
+          unrelated: "caller metadata",
+          kilocode: {
+            callerValue: true,
+            providerBindings: {
+              version: 1,
+              providers: { openai: { mode: "legacy", authMode: "api-key", source: "explicit" } },
+            },
+          },
+        },
+      })
+      const pinned: SessionBinding.Entry = {
+        mode: "profile",
+        profileID: first.id,
+        authMode: "chatgpt-oauth",
+        source: "default",
+      }
+      expect(SessionBinding.get(parent.metadata)?.providers.openai).toEqual(pinned)
+      expect(parent.metadata).toMatchObject({ unrelated: "caller metadata", kilocode: { callerValue: true } })
+      expect(yield* profiles.getDefault("openai", "chatgpt-oauth")).toBe(second.id)
+      expect(SessionBinding.get((yield* sessions.get(parent.id)).metadata)?.providers.openai).toEqual(pinned)
+
+      delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+      const child = yield* sessions.create({ parentID: parent.id })
+      const fork = yield* sessions.fork({ sessionID: parent.id })
+      expect(SessionBinding.get(child.metadata)?.providers.openai).toEqual(pinned)
+      expect(SessionBinding.get(fork.metadata)?.providers.openai).toEqual(pinned)
+
+      const row = yield* db.db
+        .select()
+        .from(EventTable)
+        .where(
+          and(
+            eq(EventTable.aggregate_id, parent.id),
+            eq(EventTable.type, EventV2.versionedType(SessionV1.Event.Created.type, 1)),
+          ),
+        )
+        .get()
+      expect(row).toBeDefined()
+      if (!row) throw new Error("expected durable Created event")
+      const info = row.data.info as Record<string, unknown>
+      const replayID = SessionID.descending()
+      const replayInfo = { ...info, id: replayID }
+      const replayData = { ...row.data, sessionID: replayID, info: replayInfo }
+      yield* events.replay({
+        id: EventV2.ID.create(),
+        type: row.type,
+        seq: 0,
+        aggregateID: replayID,
+        data: replayData,
+      })
+      expect(SessionBinding.get((yield* sessions.get(replayID)).metadata)?.providers.openai).toEqual(pinned)
+    }),
+)
+// kilocode_change end
+
+// kilocode_change start - session provider-binding lifecycle regression coverage
+it.instance("session binding migration persists once and cannot assign during an admitted turn", () =>
+  Effect.gen(function* () {
+    const before = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+    delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        if (before !== undefined) process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = before
+      }),
+    )
+    const profiles = yield* ProviderAccountProfiles.Service
+    const target = yield* profiles.create({
+      provider: "openai",
+      authMode: "chatgpt-oauth",
+      label: "Target",
+      credential: secret("target"),
+    })
+    yield* profiles.clearDefault("openai", "chatgpt-oauth")
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create()
+    const unknown = yield* sessions.create()
+    const busy = yield* sessions.create()
+    expect(SessionBinding.get(busy.metadata)?.providers.openai).toEqual({
+      mode: "legacy",
+      authMode: "legacy",
+      source: "explicit",
+    })
+    yield* legacyFixture(chat.id)
+    yield* legacyFixture(unknown.id)
+    const entered = yield* Deferred.make<void>()
+    const release = yield* Deferred.make<void>()
+    const fiber = yield* sessions
+      .turn(
+        busy.id,
+        Effect.gen(function* () {
+          yield* Deferred.succeed(entered, undefined)
+          yield* Deferred.await(release)
+        }),
+      )
+      .pipe(Effect.forkChild)
+    yield* Deferred.await(entered)
+    const denied = yield* Effect.exit(
+      sessions.assignBinding({ sessionID: busy.id, provider: "openai", profileID: target.id }),
+    )
+    expect(denied._tag).toBe("Failure")
+    if (denied._tag === "Failure") expect(Cause.squash(denied.cause)).toBeInstanceOf(SessionBinding.TurnActiveError)
+    yield* Deferred.succeed(release, undefined)
+    yield* Fiber.join(fiber)
+
+    process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+    const implicitLegacy = yield* Effect.exit(
+      sessions.assignBinding({
+        sessionID: unknown.id,
+        provider: "openai",
+        profileID: target.id,
+        confirmRepair: true,
+      }),
+    )
+    expect(implicitLegacy._tag).toBe("Failure")
+    if (implicitLegacy._tag === "Failure")
+      expect(Cause.squash(implicitLegacy.cause)).toBeInstanceOf(SessionBinding.ConflictError)
+    const migrated = yield* sessions.migrateLegacyBinding({
+      sessionID: chat.id,
+      provider: "openai",
+      authMode: "oauth",
+      accountID: "legacy-account-current-at-migration",
+    })
+    expect(migrated.providers.openai).toEqual({
+      mode: "legacy",
+      authMode: "oauth",
+      accountID: "legacy-account-current-at-migration",
+      source: "migration",
+    })
+    const again = yield* Effect.exit(
+      sessions.migrateLegacyBinding({
+        sessionID: chat.id,
+        provider: "openai",
+        authMode: "oauth",
+        accountID: "legacy-account-current-at-migration",
+      }),
+    )
+    expect(again._tag).toBe("Failure")
+    if (again._tag === "Failure") expect(Cause.squash(again.cause)).toBeInstanceOf(SessionBinding.ConflictError)
+    const legacySwitch = yield* Effect.exit(
+      sessions.assignBinding({ sessionID: chat.id, provider: "openai", profileID: target.id, confirmRepair: true }),
+    )
+    expect(legacySwitch._tag).toBe("Failure")
+    if (legacySwitch._tag === "Failure")
+      expect(Cause.squash(legacySwitch.cause)).toBeInstanceOf(SessionBinding.ConflictError)
+
+    process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+    const other = yield* profiles.create({
+      provider: "openai",
+      authMode: "chatgpt-oauth",
+      label: "Other",
+      credential: secret("other"),
+    })
+    yield* profiles.clearDefault("openai", "chatgpt-oauth")
+    const healthy = yield* sessions.create()
+    expect(SessionBinding.get(healthy.metadata)?.providers.openai).toMatchObject({ mode: "unbound" })
+    yield* sessions.assignBinding({ sessionID: healthy.id, provider: "openai", profileID: target.id })
+    const healthySwitch = yield* Effect.exit(
+      sessions.assignBinding({ sessionID: healthy.id, provider: "openai", profileID: other.id, confirmRepair: true }),
+    )
+    expect(healthySwitch._tag).toBe("Failure")
+    if (healthySwitch._tag === "Failure")
+      expect(Cause.squash(healthySwitch.cause)).toBeInstanceOf(SessionBinding.ConflictError)
+
+    const old = yield* profiles.create({
+      provider: "openai",
+      authMode: "chatgpt-oauth",
+      label: "Deleted target",
+      credential: secret("deleted"),
+    })
+    yield* profiles.clearDefault("openai", "chatgpt-oauth")
+    const repair = yield* sessions.create()
+    yield* sessions.assignBinding({ sessionID: repair.id, provider: "openai", profileID: old.id })
+    yield* profiles.remove(old.id)
+    const unconfirmed = yield* Effect.exit(
+      sessions.assignBinding({ sessionID: repair.id, provider: "openai", profileID: target.id }),
+    )
+    expect(unconfirmed._tag).toBe("Failure")
+    if (unconfirmed._tag === "Failure")
+      expect(Cause.squash(unconfirmed.cause)).toBeInstanceOf(SessionBinding.ConflictError)
+    expect(
+      yield* sessions.assignBinding({
+        sessionID: repair.id,
+        provider: "openai",
+        profileID: target.id,
+        confirmRepair: true,
+      }),
+    ).toMatchObject({
+      providers: { openai: { mode: "profile", profileID: target.id, source: "repair" } },
+    })
+
+    const db = yield* Database.Service
+    const row = yield* db.db
+      .select()
+      .from(EventTable)
+      .where(
+        and(
+          eq(EventTable.aggregate_id, chat.id),
+          eq(EventTable.type, EventV2.versionedType(SessionV1.Event.Updated.type, 1)),
+        ),
+      )
+      .get()
+    expect(row?.data.info).toMatchObject({
+      metadata: {
+        kilocode: {
+          providerBindings: {
+            providers: { openai: { mode: "legacy", accountID: "legacy-account-current-at-migration" } },
+          },
+        },
+      },
+    })
+    const rows = yield* db.db
+      .select()
+      .from(EventTable)
+      .where(eq(EventTable.aggregate_id, chat.id))
+      .orderBy(asc(EventTable.seq))
+      .all()
+    const replayID = SessionID.descending()
+    const replay = rows.map((item) => {
+      const info = item.data.info as Record<string, unknown>
+      return {
+        id: EventV2.ID.create(),
+        type: item.type,
+        seq: item.seq,
+        aggregateID: replayID,
+        data: { ...item.data, sessionID: replayID, info: { ...info, id: replayID } },
+      } satisfies EventV2.SerializedEvent
+    })
+    yield* (yield* EventV2.Service).replayAll(replay)
+    expect(SessionBinding.get((yield* sessions.get(replayID)).metadata)?.providers.openai).toEqual(
+      migrated.providers.openai,
+    )
+  }),
+)
+// kilocode_change end
 
 // kilocode_change start - stub signature + prompt body extended to persist assistant cost for propagation tests
 function stubOps(opts?: {
@@ -301,8 +615,27 @@ describe("tool.task", () => {
   // kilocode_change start - verify forked task children remain resumable
   it.instance("execute resumes a cloned task session after the parent is forked", () =>
     Effect.gen(function* () {
+      const before = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+      process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          if (before === undefined) delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+          else process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = before
+        }),
+      )
+      const profiles = yield* ProviderAccountProfiles.Service
+      const profile = yield* profiles.create({
+        provider: "openai",
+        authMode: "chatgpt-oauth",
+        label: "Fork source",
+        credential: secret("fork-source"),
+      })
       const sessions = yield* Session.Service
       const { chat, assistant } = yield* seed()
+      expect(SessionBinding.get(chat.metadata)?.providers.openai).toMatchObject({
+        mode: "profile",
+        profileID: profile.id,
+      })
       const child = yield* sessions.create({ parentID: chat.id, title: "Existing child" })
       yield* sessions.updatePart({
         id: PartID.ascending(),
@@ -323,6 +656,9 @@ describe("tool.task", () => {
       } as MessageV2.ToolPart)
 
       const forked = yield* sessions.fork({ sessionID: chat.id })
+      expect(SessionBinding.get((yield* sessions.get(forked.id)).metadata)?.providers.openai).toEqual(
+        SessionBinding.get((yield* sessions.get(chat.id)).metadata)?.providers.openai,
+      ) // kilocode_change
       const msgs = yield* sessions.messages({ sessionID: forked.id })
       const part = msgs.flatMap((msg) => msg.parts).find((item) => item.type === "tool" && item.tool === "task") as
         | MessageV2.ToolPart
@@ -357,6 +693,9 @@ describe("tool.task", () => {
 
       expect(seen?.sessionID).toBe(SessionID.descending(id))
       expect((yield* sessions.get(SessionID.descending(id))).parentID).toBe(forked.id)
+      expect(SessionBinding.get((yield* sessions.get(SessionID.descending(id))).metadata)?.providers.openai).toEqual(
+        SessionBinding.get((yield* sessions.get(child.id)).metadata)?.providers.openai,
+      ) // kilocode_change
     }),
   )
   // kilocode_change end
@@ -586,8 +925,28 @@ describe("tool.task", () => {
 
   it.instance("execute creates a child when task_id does not exist", () =>
     Effect.gen(function* () {
+      // kilocode_change start - enable profile binding and verify task child inheritance
+      const before = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+      process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          if (before === undefined) delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+          else process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = before
+        }),
+      )
+      const profiles = yield* ProviderAccountProfiles.Service
+      const profile = yield* profiles.create({
+        provider: "openai",
+        authMode: "chatgpt-oauth",
+        label: "Task source",
+        credential: secret("task-source"),
+      })
       const sessions = yield* Session.Service
       const { chat, assistant } = yield* seed()
+      expect(SessionBinding.get(chat.metadata)?.providers.openai).toMatchObject({
+        mode: "profile",
+        profileID: profile.id,
+      })
       const tool = yield* TaskTool
       const def = yield* tool.init()
       let seen: SessionPrompt.PromptInput | undefined
@@ -615,6 +974,10 @@ describe("tool.task", () => {
       const kids = yield* sessions.children(chat.id)
       expect(kids).toHaveLength(1)
       expect(kids[0]?.id).toBe(result.metadata.sessionId)
+      expect(SessionBinding.get(kids[0]?.metadata)?.providers.openai).toEqual(
+        SessionBinding.get((yield* sessions.get(chat.id)).metadata)?.providers.openai,
+      )
+      // kilocode_change end
       expect(result.metadata.sessionId).not.toBe("ses_missing")
       expect(result.output).toContain(`<task id="${result.metadata.sessionId}" state="completed">`)
       expect(seen?.sessionID).toBe(result.metadata.sessionId)

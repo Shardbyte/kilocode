@@ -213,6 +213,7 @@ export async function generateCommitMessage(request: CommitMessageRequest): Prom
           },
         ],
         sessionID: "commit-message",
+        providerAccountContext: { kind: "commit-message" },
         system: [],
         retries: 3,
       },

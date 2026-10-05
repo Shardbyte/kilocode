@@ -4,6 +4,7 @@ import { createHash } from "node:crypto"
 import { Integration } from "../../integration"
 import { ProviderV2 } from "../../provider"
 import type { Adapter, AdapterContext } from "../provider-usage"
+import { ProviderAccountProfiles } from "../provider-account-profiles"
 
 const url = "https://chatgpt.com/backend-api/wham/usage"
 const manage = "https://chatgpt.com/codex/settings/usage"
@@ -74,6 +75,16 @@ const discover = Effect.fn("ProviderUsage.Codex.discover")(function* (
 export function create(integrations: Integration.Interface) {
   let state: { connection: string; identity: string } | undefined
   return Effect.fn("ProviderUsage.Codex.prepare")(function* (ctx: AdapterContext) {
+    // Until profile-authoritative usage exists, never attribute legacy Codex usage to a profile.
+    if (ProviderAccountProfiles.enabled()) {
+      state = undefined
+      ctx.prune("codex-chatgpt", [])
+      return {
+        cachePrefixes: ["codex-chatgpt"],
+        valid: () => false,
+        run: async () => ({ items: [] }),
+      } satisfies Adapter
+    }
     const current = yield* discover(
       ctx.providers.find((provider) => provider.id === ProviderV2.ID.openai),
       integrations,
@@ -86,7 +97,7 @@ export function create(integrations: Integration.Interface) {
       ctx.prune("codex-chatgpt", [])
     }
     const identity = state?.identity
-    const valid = () => identity !== undefined && state?.identity === identity
+    const valid = () => !ProviderAccountProfiles.enabled() && identity !== undefined && state?.identity === identity
     return {
       cachePrefixes: ["codex-chatgpt"],
       valid,

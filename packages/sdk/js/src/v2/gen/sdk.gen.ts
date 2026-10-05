@@ -344,6 +344,32 @@ import type {
   ProjectUpdateErrors,
   ProjectUpdateResponses,
   PromptInput,
+  ProviderAccountsAuthStateErrors,
+  ProviderAccountsAuthStateResponses,
+  ProviderAccountsDefaultClearErrors,
+  ProviderAccountsDefaultClearResponses,
+  ProviderAccountsDefaultSelectErrors,
+  ProviderAccountsDefaultSelectResponses,
+  ProviderAccountsGetErrors,
+  ProviderAccountsGetResponses,
+  ProviderAccountsListErrors,
+  ProviderAccountsListResponses,
+  ProviderAccountsOauthCancelErrors,
+  ProviderAccountsOauthCancelResponses,
+  ProviderAccountsOauthCompleteErrors,
+  ProviderAccountsOauthCompleteResponses,
+  ProviderAccountsOauthReauthenticateErrors,
+  ProviderAccountsOauthReauthenticateResponses,
+  ProviderAccountsOauthStartErrors,
+  ProviderAccountsOauthStartResponses,
+  ProviderAccountsRemoveErrors,
+  ProviderAccountsRemoveResponses,
+  ProviderAccountsRenameErrors,
+  ProviderAccountsRenameResponses,
+  ProviderAccountsSessionAssignErrors,
+  ProviderAccountsSessionAssignResponses,
+  ProviderAccountsSessionGetErrors,
+  ProviderAccountsSessionGetResponses,
   ProviderAuthErrors,
   ProviderAuthResponses,
   ProviderListErrors,
@@ -9934,6 +9960,537 @@ export class Memory extends HeyApiClient {
   }
 }
 
+export class Oauth2 extends HeyApiClient {
+  /**
+   * Start adding a provider account
+   *
+   * Start an isolated OAuth operation and return its authorization URL and opaque operation ID.
+   */
+  public start<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      label: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "label" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ProviderAccountsOauthStartResponses,
+      ProviderAccountsOauthStartErrors,
+      ThrowOnError
+    >({
+      url: "/provider-accounts/oauth/start",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Start provider account reauthentication
+   *
+   * Start an isolated reauthentication bound to the target profile's expected credential revision.
+   */
+  public reauthenticate<ThrowOnError extends boolean = false>(
+    parameters: {
+      accountID: string
+      directory?: string
+      workspace?: string
+      expectedRevision: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "accountID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "expectedRevision" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ProviderAccountsOauthReauthenticateResponses,
+      ProviderAccountsOauthReauthenticateErrors,
+      ThrowOnError
+    >({
+      url: "/provider-accounts/{accountID}/oauth/start",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Complete provider OAuth
+   *
+   * Complete one isolated OAuth operation. Credentials remain server-side and are not returned.
+   */
+  public complete<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      operationID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "operationID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ProviderAccountsOauthCompleteResponses,
+      ProviderAccountsOauthCompleteErrors,
+      ThrowOnError
+    >({
+      url: "/provider-accounts/oauth/complete",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Cancel provider OAuth
+   *
+   * Cancel one unfinished OAuth operation by its opaque operation ID.
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters: {
+      operationID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "operationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      ProviderAccountsOauthCancelResponses,
+      ProviderAccountsOauthCancelErrors,
+      ThrowOnError
+    >({
+      url: "/provider-accounts/oauth/{operationID}",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Default extends HeyApiClient {
+  /**
+   * Clear default provider account
+   *
+   * Clear the selected default without selecting another profile.
+   */
+  public clear<ThrowOnError extends boolean = false>(
+    parameters: {
+      providerID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "providerID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      ProviderAccountsDefaultClearResponses,
+      ProviderAccountsDefaultClearErrors,
+      ThrowOnError
+    >({
+      url: "/provider-accounts/{providerID}/default",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Select default provider account
+   *
+   * Select the local default OAuth profile for a provider.
+   */
+  public select<ThrowOnError extends boolean = false>(
+    parameters: {
+      providerID: string
+      directory?: string
+      workspace?: string
+      accountID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "providerID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "accountID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<
+      ProviderAccountsDefaultSelectResponses,
+      ProviderAccountsDefaultSelectErrors,
+      ThrowOnError
+    >({
+      url: "/provider-accounts/{providerID}/default",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Session4 extends HeyApiClient {
+  /**
+   * Get session provider account binding
+   *
+   * Read the safe local provider profile binding for a session.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      providerID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "providerID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      ProviderAccountsSessionGetResponses,
+      ProviderAccountsSessionGetErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/provider-accounts/{providerID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Assign session provider account
+   *
+   * Assign or explicitly repair an opaque provider profile binding for a session.
+   */
+  public assign<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      providerID: string
+      directory?: string
+      workspace?: string
+      accountID: string
+      confirmRepair?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "providerID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "accountID" },
+            { in: "body", key: "confirmRepair" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<
+      ProviderAccountsSessionAssignResponses,
+      ProviderAccountsSessionAssignErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/provider-accounts/{providerID}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class ProviderAccounts extends HeyApiClient {
+  /**
+   * List provider accounts
+   *
+   * List safe metadata for local OAuth profiles; credentials are never returned.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      provider: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "provider" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      ProviderAccountsListResponses,
+      ProviderAccountsListErrors,
+      ThrowOnError
+    >({
+      url: "/provider-accounts",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Remove provider account
+   *
+   * Remove one local provider profile and its credential.
+   */
+  public remove<ThrowOnError extends boolean = false>(
+    parameters: {
+      accountID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "accountID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      ProviderAccountsRemoveResponses,
+      ProviderAccountsRemoveErrors,
+      ThrowOnError
+    >({
+      url: "/provider-accounts/{accountID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get provider account
+   *
+   * Get safe metadata and credential health for one local OAuth profile.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      accountID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "accountID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ProviderAccountsGetResponses, ProviderAccountsGetErrors, ThrowOnError>({
+      url: "/provider-accounts/{accountID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Rename provider account
+   *
+   * Change the local display label of a provider account.
+   */
+  public rename<ThrowOnError extends boolean = false>(
+    parameters: {
+      accountID: string
+      directory?: string
+      workspace?: string
+      label: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "accountID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "label" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<
+      ProviderAccountsRenameResponses,
+      ProviderAccountsRenameErrors,
+      ThrowOnError
+    >({
+      url: "/provider-accounts/{accountID}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Get provider account credential health
+   *
+   * Report safe credential health derived from its stored expiration without refreshing it.
+   */
+  public authState<ThrowOnError extends boolean = false>(
+    parameters: {
+      accountID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "accountID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      ProviderAccountsAuthStateResponses,
+      ProviderAccountsAuthStateErrors,
+      ThrowOnError
+    >({
+      url: "/provider-accounts/{accountID}/auth-state",
+      ...options,
+      ...params,
+    })
+  }
+
+  private _oauth?: Oauth2
+  get oauth(): Oauth2 {
+    return (this._oauth ??= new Oauth2({ client: this.client }))
+  }
+
+  private _default?: Default
+  get default(): Default {
+    return (this._default ??= new Default({ client: this.client }))
+  }
+
+  private _session?: Session4
+  get session(): Session4 {
+    return (this._session ??= new Session4({ client: this.client }))
+  }
+}
+
 export class Health extends HeyApiClient {
   /**
    * Check server health
@@ -10336,7 +10893,7 @@ export class Question2 extends HeyApiClient {
   }
 }
 
-export class Session4 extends HeyApiClient {
+export class Session5 extends HeyApiClient {
   /**
    * List sessions
    *
@@ -11936,9 +12493,9 @@ export class V2 extends HeyApiClient {
     return (this._agent ??= new Agent({ client: this.client }))
   }
 
-  private _session?: Session4
-  get session(): Session4 {
-    return (this._session ??= new Session4({ client: this.client }))
+  private _session?: Session5
+  get session(): Session5 {
+    return (this._session ??= new Session5({ client: this.client }))
   }
 
   private _model?: Model
@@ -12218,6 +12775,11 @@ export class KiloClient extends HeyApiClient {
   private _memory?: Memory
   get memory(): Memory {
     return (this._memory ??= new Memory({ client: this.client }))
+  }
+
+  private _providerAccounts?: ProviderAccounts
+  get providerAccounts(): ProviderAccounts {
+    return (this._providerAccounts ??= new ProviderAccounts({ client: this.client }))
   }
 
   private _v2?: V2

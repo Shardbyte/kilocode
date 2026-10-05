@@ -299,7 +299,7 @@ export const SessionApi = HttpApi.make("session")
           query: WorkspaceRoutingQuery,
           payload: InitPayload,
           success: described(Schema.Boolean, "200"),
-          error: [HttpApiError.BadRequest, ApiNotFoundError],
+          error: [HttpApiError.BadRequest, ApiNotFoundError, SessionBusyError], // kilocode_change - busy init turns have a stable typed response
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.init",
@@ -337,7 +337,7 @@ export const SessionApi = HttpApi.make("session")
           query: WorkspaceRoutingQuery,
           payload: SummarizePayload,
           success: described(Schema.Boolean, "Summarized session"),
-          error: [HttpApiError.BadRequest, ApiNotFoundError],
+          error: [HttpApiError.BadRequest, ApiNotFoundError, SessionBusyError], // kilocode_change - summarize uses the same busy contract as prompt handlers
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.summarize",

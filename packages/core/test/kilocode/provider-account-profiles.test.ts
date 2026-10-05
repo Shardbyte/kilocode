@@ -6,6 +6,7 @@ import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles"
 import { SecretTable } from "@opencode-ai/core/kilocode/provider-account-profiles/sql"
+import { importStoredLegacy } from "@opencode-ai/core/kilocode/provider-account-profiles/lifecycle"
 import { tmpdir } from "../fixture/tmpdir"
 
 const oauth = (tag: string): ProviderAccountProfiles.Secret => ({
@@ -40,7 +41,7 @@ async function race(dir: string, gate: string, scripts: { name: string; code: st
     }),
   )
   try {
-    const deadline = Date.now() + 15_000
+    const deadline = Date.now() + 30_000
     while (
       !(await Promise.all(scripts.map((script) => Bun.file(path.join(dir, `${script.name}.ready`)).exists()))).every(
         Boolean,
@@ -272,6 +273,336 @@ test("provider account profiles persist separate metadata and CAS credentials", 
       expect(yield* service.credential(a.id)).toEqual({ value: oauth("A2"), revision: 1 })
       expect(yield* service.credential(b.id)).toEqual({ value: oauth("B2"), revision: 1 })
       expect(yield* service.getDefault("openai", "chatgpt-oauth")).toBeUndefined()
+    }),
+  )
+})
+
+test("profile dispatch releases SQLite coordination before the response settles", async () => {
+  await using tmp = await tmpdir()
+  const result = await run(path.join(tmp.path, "dispatch.db"), (service) =>
+    Effect.gen(function* () {
+      const account = yield* service.create({
+        provider: "openai",
+        authMode: "chatgpt-oauth",
+        label: "Dispatch",
+        credential: oauth("dispatch"),
+      })
+      const response = Promise.withResolvers<string>()
+      const started = yield* service.dispatch(account.id, (secret, revision) => {
+        expect(secret.access).toBe(oauth("dispatch").access)
+        expect(revision).toBe(0)
+        return response.promise
+      })
+      yield* service.remove(account.id)
+      expect(yield* service.get(account.id)).toBeUndefined()
+      response.resolve("sent")
+      return started.response
+    }),
+  )
+  expect(result).toBe("sent")
+})
+
+test("reauthentication enforces revision and strong identity continuity", async () => {
+  await using tmp = await tmpdir()
+  await run(path.join(tmp.path, "reauth.db"), (service) =>
+    Effect.gen(function* () {
+      const first = yield* service.create({
+        provider: "openai",
+        authMode: "chatgpt-oauth",
+        label: "Work",
+        remoteID: "remote-work",
+        credential: oauth("before"),
+      })
+      const second = yield* service.create({
+        provider: "openai",
+        authMode: "chatgpt-oauth",
+        label: "Personal",
+        remoteID: "remote-personal",
+        credential: oauth("personal"),
+      })
+      const unbound = yield* service.create({
+        provider: "openai",
+        authMode: "chatgpt-oauth",
+        label: "Unbound identity",
+        credential: oauth("unbound"),
+      })
+      const mismatch = yield* Effect.exit(
+        service.reauthenticate({
+          id: first.id,
+          revision: 0,
+          value: oauth("wrong-account"),
+          remoteID: "remote-personal",
+        }),
+      )
+      expect(mismatch._tag).toBe("Failure")
+      if (mismatch._tag === "Failure") {
+        expect(Cause.prettyErrors(mismatch.cause).join("\n")).toContain("ProviderAccountProfiles.IdentityMismatchError")
+      }
+      const missing = yield* Effect.exit(
+        service.reauthenticate({ id: first.id, revision: 0, value: oauth("missing-identity") }),
+      )
+      expect(missing._tag).toBe("Failure")
+      if (missing._tag === "Failure") {
+        expect(Cause.prettyErrors(missing.cause).join("\n")).toContain("ProviderAccountProfiles.IdentityMismatchError")
+      }
+      expect(yield* service.credential(first.id)).toEqual({ value: oauth("before"), revision: 0 })
+      const duplicate = yield* Effect.exit(
+        service.reauthenticate({
+          id: unbound.id,
+          revision: 0,
+          value: oauth("duplicate-account"),
+          remoteID: "remote-personal",
+        }),
+      )
+      expect(duplicate._tag).toBe("Failure")
+      if (duplicate._tag === "Failure") {
+        expect(Cause.prettyErrors(duplicate.cause).join("\n")).toContain(
+          "ProviderAccountProfiles.DuplicateRemoteIdentityError",
+        )
+      }
+      const stale = yield* Effect.exit(
+        service.reauthenticate({
+          id: first.id,
+          revision: 3,
+          value: oauth("stale"),
+          remoteID: "remote-work",
+        }),
+      )
+      expect(stale._tag).toBe("Failure")
+      expect(yield* service.credential(first.id)).toEqual({ value: oauth("before"), revision: 0 })
+      expect(
+        yield* service.reauthenticate({
+          id: first.id,
+          revision: 0,
+          value: oauth("after"),
+          remoteID: "remote-work",
+        }),
+      ).toBe(1)
+      expect(yield* service.credential(first.id)).toEqual({ value: oauth("after"), revision: 1 })
+      expect(yield* service.get(second.id)).toMatchObject({ remoteID: "remote-personal" })
+    }),
+  )
+})
+
+test("guarded legacy import records completion atomically and never resurrects a removed account", async () => {
+  await using tmp = await tmpdir()
+  const before = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+  process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+  try {
+    const filename = path.join(tmp.path, "import.db")
+    const id = await run(filename, (service) =>
+      Effect.gen(function* () {
+        const imported = yield* service.importLegacy({ credential: oauth("legacy"), remoteID: "remote-legacy" })
+        expect(imported.imported).toBe(true)
+        expect(imported.accountID).toBeDefined()
+        expect(yield* service.getDefault("openai", "chatgpt-oauth")).toBe(imported.accountID)
+        yield* service.remove(imported.accountID!)
+        expect(yield* service.importLegacy({ credential: oauth("new-legacy"), remoteID: "remote-new" })).toEqual({
+          imported: false,
+          accountID: imported.accountID,
+        })
+        expect(yield* service.get(imported.accountID!)).toBeUndefined()
+        expect(yield* service.imported()).toEqual({ completed: true, accountID: imported.accountID })
+        return imported.accountID
+      }),
+    )
+    await run(filename, (service) =>
+      Effect.gen(function* () {
+        expect(yield* service.importLegacy({ credential: oauth("restart"), remoteID: "remote-restart" })).toEqual({
+          imported: false,
+          accountID: id,
+        })
+        expect(yield* service.list("openai", "chatgpt-oauth")).toEqual([])
+        expect(yield* service.getDefault("openai", "chatgpt-oauth")).toBeUndefined()
+        expect(yield* service.imported()).toEqual({ completed: true, accountID: id })
+      }),
+    )
+  } finally {
+    if (before === undefined) delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+    else process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = before
+  }
+})
+
+test("injected credentials do not enter stored profile import", async () => {
+  const profileFlag = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+  const authContent = process.env.KILO_AUTH_CONTENT
+  process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+  process.env.KILO_AUTH_CONTENT = "{}"
+  let imported = false
+  let listed = false
+  try {
+    await Effect.runPromise(
+      importStoredLegacy(
+        {
+          importLegacy: () => {
+            imported = true
+            return Effect.succeed({ imported: false })
+          },
+        },
+        {
+          list: () => {
+            listed = true
+            return Effect.succeed([])
+          },
+        },
+      ),
+    )
+    expect(listed).toBe(false)
+    expect(imported).toBe(false)
+  } finally {
+    if (profileFlag === undefined) delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+    else process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = profileFlag
+    if (authContent === undefined) delete process.env.KILO_AUTH_CONTENT
+    else process.env.KILO_AUTH_CONTENT = authContent
+  }
+})
+
+test("failed legacy profile write leaves neither a profile nor a completion marker", async () => {
+  await using tmp = await tmpdir()
+  const before = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+  process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+  try {
+    await run(path.join(tmp.path, "import-failure.db"), (service) =>
+      Effect.gen(function* () {
+        const { db } = yield* Database.Service
+        yield* db.run(
+          sql`CREATE TRIGGER reject_legacy_profile_secret BEFORE INSERT ON kilo_provider_account_credential BEGIN SELECT RAISE(ABORT, 'sentinel-secret-import-failure'); END`,
+        )
+        const failed = yield* Effect.exit(
+          service.importLegacy({ credential: oauth("rollback"), remoteID: "remote-rollback" }),
+        )
+        expect(failed._tag).toBe("Failure")
+        if (failed._tag === "Failure") {
+          const errors = Cause.prettyErrors(failed.cause).join("\n")
+          expect(errors).not.toContain(oauth("rollback").access)
+          expect(errors).not.toContain(oauth("rollback").refresh)
+        }
+        expect(yield* service.list("openai", "chatgpt-oauth")).toHaveLength(0)
+        expect(yield* service.imported()).toEqual({ completed: false })
+      }),
+    )
+  } finally {
+    if (before === undefined) delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+    else process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = before
+  }
+})
+
+test("failed durable marker insert rolls back imported metadata, credential, and default", async () => {
+  await using tmp = await tmpdir()
+  const before = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+  process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+  try {
+    await run(path.join(tmp.path, "marker-failure.db"), (service) =>
+      Effect.gen(function* () {
+        const { db } = yield* Database.Service
+        yield* db.run(
+          sql`CREATE TRIGGER reject_import_marker BEFORE INSERT ON kilo_provider_account_import BEGIN SELECT RAISE(ABORT, 'marker failure'); END`,
+        )
+        const failed = yield* Effect.exit(
+          service.importLegacy({ credential: oauth("marker-failure"), remoteID: "remote-marker-failure" }),
+        )
+        expect(failed._tag).toBe("Failure")
+        expect(yield* service.list("openai", "chatgpt-oauth")).toHaveLength(0)
+        expect(yield* service.getDefault("openai", "chatgpt-oauth")).toBeUndefined()
+        expect(yield* service.imported()).toEqual({ completed: false })
+      }),
+    )
+  } finally {
+    if (before === undefined) delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+    else process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = before
+  }
+})
+
+test("concurrent independent importers commit one account and survive process restart", async () => {
+  await using tmp = await tmpdir()
+  const filename = path.join(tmp.path, "import-race.db")
+  const dir = tmp.path
+  const gate = path.join(dir, "import.go")
+  const ready = (name: string) => path.join(dir, `${name}.ready`)
+  const code = (name: string, tag: string) => `
+    process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+    const { Effect, Layer } = await import("effect")
+    const { Database } = await import(${JSON.stringify(new URL("../../src/database/database.ts", import.meta.url).href)})
+    const { LayerNode } = await import(${JSON.stringify(new URL("../../src/effect/layer-node.ts", import.meta.url).href)})
+    const { ProviderAccountProfiles } = await import(${JSON.stringify(new URL("../../src/kilocode/provider-account-profiles.ts", import.meta.url).href)})
+    const layer = LayerNode.compile(LayerNode.group([ProviderAccountProfiles.node, Database.node]), [[Database.node, Database.layerFromPath(${JSON.stringify(filename)}).pipe(Layer.fresh)]])
+    await Bun.write(${JSON.stringify(ready(name))}, "ready")
+    while (!(await Bun.file(${JSON.stringify(gate)}).exists())) await Bun.sleep(5)
+    const result = await Effect.runPromise(Effect.gen(function* () { const service = yield* ProviderAccountProfiles.Service; return yield* service.importLegacy({ credential: { access: "a-${tag}", refresh: "r-${tag}", expires: 1900000000000, accountID: "remote-race" }, remoteID: "remote-race" }) }).pipe(Effect.provide(layer), Effect.scoped))
+    console.log(JSON.stringify(result))
+  `
+  await run(filename, () => Effect.void)
+  const before = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+  process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+  try {
+    const children = await race(dir, gate, [
+      { name: "import-a", code: code("import-a", "a") },
+      { name: "import-b", code: code("import-b", "b") },
+    ])
+    expect(children.every((child) => child.code === 0)).toBe(true)
+    const results = children.map((child) => {
+      const item: unknown = JSON.parse(child.out)
+      if (typeof item !== "object" || item === null || !("imported" in item) || typeof item.imported !== "boolean")
+        throw new Error("Provider profile import subprocess returned an invalid result")
+      return {
+        imported: item.imported,
+        ...("accountID" in item && typeof item.accountID === "string" ? { accountID: item.accountID } : {}),
+      }
+    })
+    expect(results.filter((item) => item.imported)).toHaveLength(1)
+    expect(results[0]?.accountID).toBe(results[1]?.accountID)
+    await run(filename, (service) =>
+      Effect.gen(function* () {
+        expect(yield* service.list("openai", "chatgpt-oauth")).toHaveLength(1)
+        expect(yield* service.imported()).toEqual({ completed: true, accountID: results[0]?.accountID })
+      }),
+    )
+  } finally {
+    if (before === undefined) delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+    else process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = before
+  }
+}, 30_000)
+
+test("refresh locks are account-scoped: same account serializes while another account proceeds", async () => {
+  await using tmp = await tmpdir()
+  await run(path.join(tmp.path, "refresh.db"), (service) =>
+    Effect.gen(function* () {
+      const a = yield* service.create({
+        provider: "openai",
+        authMode: "chatgpt-oauth",
+        label: "A",
+        credential: oauth("refresh-a"),
+      })
+      const b = yield* service.create({
+        provider: "openai",
+        authMode: "chatgpt-oauth",
+        label: "B",
+        credential: oauth("refresh-b"),
+      })
+      const hold = Promise.withResolvers<void>()
+      const ready = Promise.withResolvers<void>()
+      const first = Effect.runPromise(
+        service.withRefresh(
+          a.id,
+          Effect.promise(() => {
+            ready.resolve()
+            return hold.promise
+          }),
+        ),
+      )
+      yield* Effect.promise(() => ready.promise)
+      let count = 0
+      const second = Effect.runPromise(
+        service.withRefresh(
+          a.id,
+          Effect.sync(() => ++count),
+        ),
+      )
+      expect(yield* service.withRefresh(b.id, Effect.succeed("independent"))).toBe("independent")
+      hold.resolve()
+      yield* Effect.promise(() => first)
+      expect(yield* Effect.promise(() => second)).toBe(1)
+      expect(count).toBe(1)
     }),
   )
 })

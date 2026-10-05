@@ -11,12 +11,7 @@ const step = (metrics: { generation?: number }) => ({
   generated: 0,
 })
 
-const weightedStep = (overrides: {
-  generation: number
-  output: number
-  reasoning?: number
-  elapsedMs: number
-}) => ({
+const weightedStep = (overrides: { generation: number; output: number; reasoning?: number; elapsedMs: number }) => ({
   metrics: { generation: overrides.generation, source: "computed" as const },
   generated: overrides.output + (overrides.reasoning ?? 0),
   elapsedMs: overrides.elapsedMs,

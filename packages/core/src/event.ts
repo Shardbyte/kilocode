@@ -127,11 +127,13 @@ export interface PublishOptions {
 }
 
 export interface Interface {
+  // kilocode_change start - allow Kilo binding snapshots before durable encoding
   readonly publish: <D extends Definition>(
     definition: D,
     data: Data<D>,
-    options?: PublishOptions,
+    options?: PublishOptions & { readonly prepare?: (data: Data<D>) => Effect.Effect<Data<D>> },
   ) => Effect.Effect<Payload<D>>
+  // kilocode_change end
   // kilocode_change start
   readonly publishAll: (
     entries: readonly { readonly definition: Definition; readonly data: Data<Definition> }[],
@@ -221,6 +223,9 @@ export const layerWith = (options?: LayerOptions) =>
           readonly strictOwner?: boolean
         },
         commit?: (seq: number) => Effect.Effect<void>,
+        // kilocode_change start - prepare durable domain data inside the event's immediate transaction
+        prepare?: (data: unknown) => Effect.Effect<unknown>,
+        // kilocode_change end
       ) {
         return Effect.gen(function* () {
           const durable = definition?.durable
@@ -249,6 +254,7 @@ export const layerWith = (options?: LayerOptions) =>
                     .transaction(
                       () =>
                         Effect.gen(function* () {
+                          const data = prepare ? yield* prepare(event.data) : event.data // kilocode_change
                           const row = yield* db
                             .select({ seq: EventSequenceTable.seq, ownerID: EventSequenceTable.owner_id })
                             .from(EventSequenceTable)
@@ -259,7 +265,7 @@ export const layerWith = (options?: LayerOptions) =>
                           // kilocode_change - persist tool content in the released shape
                           const encoded = EventStorage.encode(
                             definition.type,
-                            Schema.encodeUnknownSync(definition.data)(event.data),
+                            Schema.encodeUnknownSync(definition.data)(data), // kilocode_change - encode prepared binding state
                           ) as Record<string, unknown>
                           if (input?.strictOwner && row?.ownerID && row.ownerID !== input.ownerID) {
                             yield* Effect.die(
@@ -325,6 +331,7 @@ export const layerWith = (options?: LayerOptions) =>
                             )
                           const committed = {
                             ...event,
+                            data, // kilocode_change
                             durable: { aggregateID, seq, version: durable.version },
                           } as Payload
                           for (const projector of list) {
@@ -356,7 +363,7 @@ export const layerWith = (options?: LayerOptions) =>
                             ])
                             .run()
                             .pipe(Effect.orDie)
-                          return { aggregateID, seq }
+                          return { aggregateID, seq, data } // kilocode_change
                         }),
                       { behavior: "immediate" },
                     )
@@ -376,20 +383,34 @@ export const layerWith = (options?: LayerOptions) =>
         })
       }
 
-      function publishEvent<D extends Definition>(definition: D, event: Payload<D>, commit?: PublishOptions["commit"]) {
+      // kilocode_change start - persist and notify with prepared durable event data
+      function publishEvent<D extends Definition>(
+        definition: D,
+        event: Payload<D>,
+        options?: PublishOptions & { readonly prepare?: (data: Data<D>) => Effect.Effect<Data<D>> },
+      ) {
         return Effect.gen(function* () {
-          if (!definition?.durable && commit)
+          if (!definition?.durable && (options?.commit || options?.prepare))
             return yield* Effect.die(
               new InvalidDurableEventError({
                 type: event.type,
-                message: "Local commit hooks require a durable event",
+                message: options?.commit
+                  ? "Local commit hooks require a durable event"
+                  : "Local prepare hooks require a durable event",
               }),
             )
           if (definition?.durable) {
-            const committed = yield* commitDurableEvent(definition, event as Payload, undefined, commit)
+            const committed = yield* commitDurableEvent(
+              definition,
+              event as Payload,
+              undefined,
+              options?.commit,
+              options?.prepare as ((data: unknown) => Effect.Effect<unknown>) | undefined, // kilocode_change
+            )
             if (committed) {
               event = {
                 ...event,
+                data: committed.data as Data<D>, // kilocode_change - notify listeners with exactly the encoded snapshot
                 durable: {
                   aggregateID: committed.aggregateID,
                   seq: committed.seq,
@@ -404,6 +425,7 @@ export const layerWith = (options?: LayerOptions) =>
           return event
         })
       }
+      // kilocode_change end
 
       const observe = (event: Payload, observer: (event: Payload) => Effect.Effect<void>) =>
         Effect.suspend(() => observer(event)).pipe(
@@ -426,7 +448,12 @@ export const layerWith = (options?: LayerOptions) =>
         })
       }
 
-      function publish<D extends Definition>(definition: D, data: Data<D>, options?: PublishOptions) {
+      // kilocode_change start - expose typed in-transaction durable event preparation
+      function publish<D extends Definition>(
+        definition: D,
+        data: Data<D>,
+        options?: PublishOptions & { readonly prepare?: (data: Data<D>) => Effect.Effect<Data<D>> },
+      ) {
         return Effect.gen(function* () {
           const serviceLocation = Option.getOrUndefined(yield* Effect.serviceOption(Location.Service))
           const location =
@@ -443,10 +470,11 @@ export const layerWith = (options?: LayerOptions) =>
               ...(location ? { location } : {}),
               data,
             } as Payload<D>,
-            options?.commit,
+            options,
           )
         })
       }
+      // kilocode_change end
 
       function replay(
         event: SerializedEvent,

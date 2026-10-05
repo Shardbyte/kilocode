@@ -46,7 +46,7 @@ import {
   UpdatePayload,
   ViewedPayload, // kilocode_change
 } from "../groups/session"
-import { PermissionNotFoundError } from "../errors"
+import { PermissionNotFoundError, SessionBusyError } from "../errors"
 import * as SessionError from "./session-errors"
 
 const tryParseJson = (text: string) =>
@@ -265,7 +265,13 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
           command: Command.Default.INIT,
           arguments: "",
         })
-        .pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+        .pipe(
+          Effect.catchIf(
+            (error): error is Session.BusyError => error instanceof Session.BusyError,
+            (error) => SessionError.mapBusy(Effect.fail(error)),
+          ),
+          Effect.mapError((error) => (error instanceof SessionBusyError ? error : new HttpApiError.BadRequest({}))),
+        ) // kilocode_change - preserve the typed busy error from session initialization
       return true
     })
 
@@ -297,15 +303,17 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       const defaultAgent = yield* agentSvc.defaultAgent()
       const currentAgent = messages.findLast((message) => message.info.role === "user")?.info.agent ?? defaultAgent
 
-      yield* compactSvc.create({
-        sessionID: ctx.params.sessionID,
-        agent: currentAgent,
-        model: {
-          providerID: ctx.payload.providerID,
-          modelID: ctx.payload.modelID,
-        },
-        auto: ctx.payload.auto ?? false,
-      })
+      yield* SessionError.mapBusy(
+        compactSvc.create({
+          sessionID: ctx.params.sessionID,
+          agent: currentAgent,
+          model: {
+            providerID: ctx.payload.providerID,
+            modelID: ctx.payload.modelID,
+          },
+          auto: ctx.payload.auto ?? false,
+        }),
+      ) // kilocode_change - return the declared session-busy API error for summarize
       yield* promptSvc.loop({ sessionID: ctx.params.sessionID })
       return true
     })
@@ -358,8 +366,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
               yield* events.publish(Session.Event.Error, {
                 sessionID: ctx.params.sessionID,
                 error: busy // kilocode_change
-                    ? new NamedError.Unknown({ message: busyMessage }).toObject() // kilocode_change
-                    : new NamedError.Unknown({ message: Cause.pretty(cause) }).toObject(), // kilocode_change
+                  ? new NamedError.Unknown({ message: busyMessage }).toObject() // kilocode_change
+                  : new NamedError.Unknown({ message: Cause.pretty(cause) }).toObject(), // kilocode_change
               })
             })
           }),

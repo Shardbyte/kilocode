@@ -12,9 +12,12 @@ import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { Database } from "@opencode-ai/core/database/database"
 import { makeRuntime } from "@opencode-ai/core/effect/runtime"
 import { EventV2Bridge } from "@/event-v2-bridge"
+import { Auth } from "@/auth" // kilocode_change
 import { EventV2 } from "@opencode-ai/core/event"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
+import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles" // kilocode_change
+import { SessionBinding } from "@opencode-ai/core/kilocode/session-binding" // kilocode_change
 
 import { NotFoundError } from "@/storage/storage"
 import { eq, and, gte, isNull, desc, like, sql, inArray, lt, or } from "drizzle-orm"
@@ -155,9 +158,7 @@ export function toRow(info: Info) {
     tokens_cache_read: (info.tokens ?? EmptyTokens).cache.read,
     tokens_cache_write: (info.tokens ?? EmptyTokens).cache.write,
     // kilocode_change - re-brand the v1 messageID to the shared Revert.State brand for the column
-    revert: info.revert
-      ? { ...info.revert, messageID: SessionMessage.ID.make(info.revert.messageID) }
-      : null,
+    revert: info.revert ? { ...info.revert, messageID: SessionMessage.ID.make(info.revert.messageID) } : null,
     permission: info.permission,
     time_created: info.time.created,
     time_updated: info.time.updated,
@@ -529,6 +530,25 @@ export interface Interface {
   readonly setTitle: (input: { sessionID: SessionID; title: string }) => Effect.Effect<void>
   readonly setArchived: (input: { sessionID: SessionID; time?: number }) => Effect.Effect<void>
   readonly setMetadata: (input: typeof SetMetadataInput.Type) => Effect.Effect<void>
+  readonly binding: (sessionID: SessionID) => Effect.Effect<SessionBinding.Info | undefined, NotFound>
+  readonly ensureBinding: (input: { sessionID: SessionID; provider: string }) =>
+    Effect.Effect<SessionBinding.Entry | undefined, NotFound | BusyError>
+  readonly turn: <A, E, R>(sessionID: SessionID, work: Effect.Effect<A, E, R>) => Effect.Effect<A, E | BusyError, R>
+  readonly assignBinding: (input: {
+    sessionID: SessionID
+    provider: string
+    profileID: string
+    confirmRepair?: boolean
+  }) => Effect.Effect<
+    SessionBinding.Info,
+    SessionBinding.ConflictError | SessionBinding.AccountUnavailableError | SessionBinding.TurnActiveError | NotFound
+  >
+  readonly migrateLegacyBinding: (input: {
+    sessionID: SessionID
+    provider: string
+    authMode: string
+    accountID: string
+  }) => Effect.Effect<SessionBinding.Info, SessionBinding.ConflictError | SessionBinding.TurnActiveError | NotFound>
   readonly setAgentModel: (input: {
     sessionID: SessionID
     agent: string
@@ -587,7 +607,13 @@ export type Patch = Omit<Partial<Info>, "time" | "share" | "summary" | "revert" 
 export const layer: Layer.Layer<
   Service,
   never,
-  BackgroundJob.Service | RuntimeFlags.Service | Database.Service | EventV2Bridge.Service
+  | BackgroundJob.Service
+  | RuntimeFlags.Service
+  | Database.Service
+  | EventV2Bridge.Service
+  | ProviderAccountProfiles.Service
+  | SessionBinding.Service
+  | Auth.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -596,6 +622,9 @@ export const layer: Layer.Layer<
     const background = yield* BackgroundJob.Service
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
+    const profiles = yield* ProviderAccountProfiles.Service // kilocode_change
+    const bindingSvc = yield* SessionBinding.Service // kilocode_change
+    const auth = yield* Auth.Service // kilocode_change
 
     // kilocode_change start - inherited sandbox policy source
     const createNext = Effect.fn("Session.createNext")(function* (input: {
@@ -611,6 +640,7 @@ export const layer: Layer.Layer<
       permission?: PermissionV1.Ruleset
       platform?: string // kilocode_change - per-session platform override for telemetry attribution
       sourceID?: SessionID // kilocode_change - inherited sandbox policy source
+      bindingSource?: SessionID // kilocode_change - only internal child/fork creation inherits provider binding
       sourceDirectory?: string
       sandboxFallback?: SandboxPolicy.Snapshot // kilocode_change - confinement to seed when source state lives in another directory
     }) {
@@ -627,7 +657,7 @@ export const layer: Layer.Layer<
         title: input.title ?? (input.parentID ? childTitlePrefix : parentTitlePrefix) + new Date().toISOString(),
         agent: input.agent,
         model: input.model,
-        metadata: input.metadata,
+        metadata: SessionBinding.copy(input.metadata),
         permission: input.permission ? [...input.permission] : undefined,
         cost: 0,
         tokens: EmptyTokens,
@@ -661,8 +691,43 @@ export const layer: Layer.Layer<
       if (source) yield* SandboxPolicy.inherit(source, result.id, input.sandboxFallback, input.sourceDirectory)
       // kilocode_change end
 
-      result.metadata = GoalState.project(result.id, result.metadata) // kilocode_change
-      yield* events.publish(SessionV1.Event.Created, { sessionID: result.id, info: result })
+      const created = yield* events.publish(SessionV1.Event.Created, { sessionID: result.id, info: result }, {
+        // kilocode_change start - persist the default snapshot inside Created's immediate transaction
+        prepare: (data) =>
+          Effect.gen(function* () {
+            const base = input.bindingSource ? SessionBinding.protect(undefined, input.metadata ?? {}) : input.metadata
+            const source = input.bindingSource ? yield* get(input.bindingSource).pipe(Effect.orDie) : undefined
+            const bindings = input.bindingSource ? SessionBinding.get(source?.metadata) : SessionBinding.get(base)
+            const inherited = bindings ? SessionBinding.set(base, bindings) : base
+            const next =
+              !input.bindingSource && !bindings?.providers.openai
+                ? ProviderAccountProfiles.enabled()
+                  ? yield* Effect.gen(function* () {
+                      const id = yield* profiles.getDefault("openai", "chatgpt-oauth").pipe(Effect.orDie)
+                      const entry: SessionBinding.Entry = id
+                        ? { mode: "profile", profileID: id, authMode: "chatgpt-oauth", source: "default" }
+                        : { mode: "unbound", reason: "profile-required" }
+                      return SessionBinding.set(inherited, {
+                        version: 1,
+                        providers: { ...bindings?.providers, openai: entry },
+                      })
+                    })
+                  : SessionBinding.set(inherited, {
+                      version: 1,
+                      providers: {
+                        ...bindings?.providers,
+                        openai: { mode: "legacy", authMode: "legacy", source: "explicit" },
+                      },
+                    })
+                : SessionBinding.copy(inherited)
+            return {
+              ...data,
+              info: { ...data.info, metadata: GoalState.project(result.id, next) },
+            }
+          }),
+        // kilocode_change end
+      })
+      result.metadata = created.data.info.metadata
 
       return result
     })
@@ -828,10 +893,11 @@ export const layer: Layer.Layer<
         title: input?.title,
         agent: input?.agent,
         model: input?.model,
-        metadata: input?.metadata,
+        metadata: input?.metadata === undefined ? undefined : SessionBinding.protect(undefined, input.metadata),
         permission: input?.permission,
         platform: input?.platform, // kilocode_change
         sourceID: grant?.sessionID, // kilocode_change
+        bindingSource: input?.parentID, // kilocode_change
         sourceDirectory: grant?.directory, // kilocode_change
         workspaceID: input?.workspaceID ?? workspace,
       })
@@ -868,9 +934,10 @@ export const layer: Layer.Layer<
         path: sessionPath(ctx.worktree, ctx.directory),
         workspaceID: original.workspaceID,
         title,
-        metadata: structuredClone(original.metadata),
+        metadata: structuredClone(original.metadata ?? {}),
         model, // kilocode_change - preserve the model + variant active at the fork point
         sourceID: input.sessionID, // kilocode_change - forks preserve initialized confinement
+        bindingSource: input.sessionID, // kilocode_change - inherit the source's binding even for historical forks
         sandboxFallback, // kilocode_change - seed confinement from the source session's original directory
         platform: KiloSession.resolvePlatform(original.id), // kilocode_change - inherit platform telemetry attribution
       })
@@ -963,7 +1030,151 @@ export const layer: Layer.Layer<
     })
 
     const setMetadata = Effect.fn("Session.setMetadata")(function* (input: typeof SetMetadataInput.Type) {
-      yield* patch(input.sessionID, { metadata: input.metadata, time: { updated: Date.now() } }).pipe(Effect.orDie)
+      const current = yield* get(input.sessionID).pipe(Effect.orDie)
+      const metadata = SessionBinding.protect(current.metadata, input.metadata)
+      yield* patch(input.sessionID, { metadata, time: { updated: Date.now() } }).pipe(Effect.orDie)
+    })
+
+    const binding = Effect.fn("Session.binding")(function* (sessionID: SessionID) {
+      return SessionBinding.get((yield* get(sessionID)).metadata)
+    })
+
+    const ensureBinding = Effect.fn("Session.ensureBinding")(function* (input: {
+      sessionID: SessionID
+      provider: string
+    }) {
+      const work = Effect.gen(function* () {
+        const session = yield* get(input.sessionID)
+        const current = SessionBinding.get(session.metadata)
+        const prior = current?.providers[input.provider]
+        if (prior) return prior
+        if (input.provider !== "openai") return undefined
+
+        const entry: SessionBinding.Entry = ProviderAccountProfiles.enabled()
+          ? yield* Effect.gen(function* () {
+              const imported = yield* profiles.imported().pipe(Effect.orDie)
+              if (imported.accountID)
+                return {
+                  mode: "profile" as const,
+                  profileID: imported.accountID,
+                  authMode: "chatgpt-oauth",
+                  source: "migration" as const,
+                }
+              return { mode: "unbound" as const, reason: "profile-required" as const }
+            })
+          : yield* Effect.gen(function* () {
+              const legacy = yield* auth.get(input.provider).pipe(Effect.orDie)
+              return {
+                mode: "legacy" as const,
+                authMode: legacy?.type ?? "legacy",
+                source: "migration" as const,
+                ...(legacy?.type === "oauth" && legacy.accountId ? { accountID: legacy.accountId } : {}),
+              }
+            })
+        const next: SessionBinding.Info = {
+          version: 1,
+          providers: { ...current?.providers, [input.provider]: entry },
+        }
+        yield* patch(input.sessionID, {
+          metadata: SessionBinding.set(session.metadata, next),
+          time: { updated: Date.now() },
+        })
+        return entry
+      })
+      return yield* bindingSvc.turn(input.sessionID, work).pipe(
+        Effect.catchTag("SessionBinding.TurnActiveError", () => Effect.fail(new BusyError({ sessionID: input.sessionID }))),
+      )
+    })
+
+    const turn = <A, E, R>(sessionID: SessionID, work: Effect.Effect<A, E, R>) =>
+      bindingSvc
+        .turn(sessionID, work)
+        .pipe(Effect.catchTag("SessionBinding.TurnActiveError", () => Effect.fail(new BusyError({ sessionID }))))
+
+    const assignBinding = Effect.fn("Session.assignBinding")(function* (input: {
+      sessionID: SessionID
+      provider: string
+      profileID: string
+      confirmRepair?: boolean
+    }) {
+      return yield* bindingSvc.exclusive(
+        input.sessionID,
+        Effect.gen(function* () {
+          if (!ProviderAccountProfiles.enabled())
+            return yield* new SessionBinding.ConflictError({ message: "Provider profile support is disabled" })
+          const session = yield* get(input.sessionID)
+          const current = SessionBinding.get(session.metadata)
+          const prior = current?.providers[input.provider]
+          const info = yield* profiles.get(input.profileID).pipe(Effect.orDie)
+          const cred = yield* profiles.credential(input.profileID).pipe(Effect.orDie)
+          if (!info || !cred || info.provider !== input.provider || info.authMode !== "chatgpt-oauth")
+            return yield* new SessionBinding.AccountUnavailableError({ message: "Provider account is unavailable" })
+          const priorInfo =
+            prior?.mode === "profile" ? yield* profiles.get(prior.profileID).pipe(Effect.orDie) : undefined
+          const priorCred =
+            prior?.mode === "profile" ? yield* profiles.credential(prior.profileID).pipe(Effect.orDie) : undefined
+          const next = yield* Effect.try({
+            try: () =>
+              SessionBinding.replace({
+                current,
+                provider: input.provider,
+                entry: {
+                  mode: "profile",
+                  profileID: input.profileID,
+                  authMode: "chatgpt-oauth",
+                  source: prior?.mode === "profile" ? "repair" : "explicit",
+                },
+                available: true,
+                priorAvailable: prior?.mode === "profile" ? !!priorInfo && !!priorCred : undefined,
+                confirmRepair: input.confirmRepair,
+              }),
+            catch: (error) => {
+              if (error instanceof SessionBinding.ConflictError) return error
+              return new SessionBinding.ConflictError({ message: "Session binding update failed" })
+            },
+          })
+          yield* patch(input.sessionID, {
+            metadata: SessionBinding.set(session.metadata, next),
+            time: { updated: Date.now() },
+          })
+          return next
+        }),
+      )
+    })
+
+    const migrateLegacyBinding = Effect.fn("Session.migrateLegacyBinding")(function* (input: {
+      sessionID: SessionID
+      provider: string
+      authMode: string
+      accountID: string
+    }) {
+      return yield* bindingSvc.exclusive(
+        input.sessionID,
+        Effect.gen(function* () {
+          const session = yield* get(input.sessionID)
+          const current = SessionBinding.get(session.metadata)
+          const prior = current?.providers[input.provider]
+          if (prior && (prior.mode !== "unbound" || prior.reason !== "legacy-migration-pending"))
+            return yield* new SessionBinding.ConflictError({ message: "Session provider binding already exists" })
+          const next: SessionBinding.Info = {
+            version: 1,
+            providers: {
+              ...current?.providers,
+              [input.provider]: {
+                mode: "legacy",
+                authMode: input.authMode,
+                accountID: input.accountID,
+                source: "migration",
+              },
+            },
+          }
+          yield* patch(input.sessionID, {
+            metadata: SessionBinding.set(session.metadata, next),
+            time: { updated: Date.now() },
+          })
+          return next
+        }),
+      )
     })
 
     const setAgentModel = Effect.fn("Session.setAgentModel")(function* (input: {
@@ -1117,6 +1328,11 @@ export const layer: Layer.Layer<
       setTitle,
       setArchived,
       setMetadata,
+      binding,
+      ensureBinding,
+      turn,
+      assignBinding,
+      migrateLegacyBinding,
       setAgentModel,
       setPermission,
       setRevert,
@@ -1245,7 +1461,15 @@ export const fork = kiloSessionFork
 export const node = LayerNode.make({
   service: Service,
   layer,
-  deps: [BackgroundJob.node, RuntimeFlags.node, Database.node, EventV2Bridge.node],
+  deps: [
+    BackgroundJob.node,
+    RuntimeFlags.node,
+    Database.node,
+    EventV2Bridge.node,
+    ProviderAccountProfiles.node,
+    SessionBinding.node,
+    Auth.node, // kilocode_change
+  ],
 })
 
 export * as Session from "./session"

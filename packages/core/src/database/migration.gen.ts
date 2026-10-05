@@ -45,5 +45,8 @@ export const migrations = (
     import("./migration/20260903104806_kilocode_board_reset"), // kilocode_change
     import("./migration/20260907102000_kilocode_model_usage_index"), // kilocode_change
     import("./migration/20261004191100_kilocode_provider_account_profiles"), // kilocode_change
+    import("./migration/20261004201748_20261004201500_kilocode_provider_account_import"), // kilocode_change
+    import("./migration/20261004202311_20261004202100_kilocode_provider_account_refresh_lock"), // kilocode_change
+    import("./migration/20261004202802_kilocode_session_turn_lock"), // kilocode_change
   ])
 ).map((module) => module.default) satisfies DatabaseMigration.Migration[]

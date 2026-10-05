@@ -45,6 +45,7 @@ import { SessionImportApi } from "@/kilocode/server/httpapi/groups/session-impor
 import { SuggestionApi } from "@/kilocode/server/httpapi/groups/suggestion"
 import { TelemetryApi } from "@/kilocode/server/httpapi/groups/telemetry"
 import { MemoryApi } from "@/kilocode/server/httpapi/groups/memory" // kilocode_change
+import { ProviderAccountsApi } from "@/kilocode/server/httpapi/groups/provider-accounts" // kilocode_change
 // kilocode_change end
 import { makeApi } from "@opencode-ai/protocol/api"
 import { LocationMiddleware } from "@opencode-ai/server/location"
@@ -115,6 +116,7 @@ export const InstanceHttpApi = HttpApi.make("opencode-instance")
   .addHttpApi(SuggestionApi)
   .addHttpApi(TelemetryApi)
   .addHttpApi(MemoryApi)
+  .addHttpApi(ProviderAccountsApi) // kilocode_change
   // kilocode_change end
   .middleware(SchemaErrorMiddleware)
 

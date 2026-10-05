@@ -148,8 +148,8 @@ function isOrphanedInterruptedTool(part: SessionV1.ToolPart) {
 export interface Interface {
   readonly cancel: (sessionID: SessionID, scope?: KiloSessionControl.AbortScope) => Effect.Effect<void> // kilocode_change
   readonly paused: (sessionID: SessionID) => Effect.Effect<boolean> // kilocode_change - wakeup resume refuses a paused session instead of dropping its turn
-  readonly prompt: (input: PromptInput) => Effect.Effect<SessionV1.WithParts, Image.Error>
-  readonly loop: (input: LoopInput) => Effect.Effect<SessionV1.WithParts>
+  readonly prompt: (input: PromptInput) => Effect.Effect<SessionV1.WithParts, Image.Error | Session.BusyError>
+  readonly loop: (input: LoopInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError>
   readonly shell: (input: ShellInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError>
   readonly command: (input: CommandInput) => Effect.Effect<SessionV1.WithParts, Image.Error | Error>
   readonly resolvePromptParts: (template: string) => Effect.Effect<PromptInput["parts"]>
@@ -1436,7 +1436,7 @@ export const layer = Layer.effect(
     const prompt: (
       input: PromptInput,
       prior?: KiloSessionControl.Ticket,
-    ) => Effect.Effect<SessionV1.WithParts, Image.Error> = Effect.fn("SessionPrompt.prompt")(
+    ) => Effect.Effect<SessionV1.WithParts, Image.Error | Session.BusyError> = Effect.fn("SessionPrompt.prompt")(
       function* (input: PromptInput, prior?: KiloSessionControl.Ticket) {
         const background = KiloSessionControl.background(input.parts)
         // kilocode_change - a real user message takes priority over an active goal
@@ -1508,7 +1508,7 @@ export const layer = Layer.effect(
         // kilocode_change end
       },
       Effect.catchTag("NotFoundError", Effect.die),
-      (work, input) => drain.track(input.sessionID, work), // kilocode_change
+      (work, input) => drain.track(input.sessionID, sessions.turn(input.sessionID, work)), // kilocode_change
     )
 
     const lastAssistant = Effect.fnUntraced(function* (sessionID: SessionID) {
@@ -1528,7 +1528,7 @@ export const layer = Layer.effect(
     const closeReasons = new Map<string, KiloSession.CloseReason>()
 
     // kilocode_change start - retain request-scoped snapshot initialization policy
-    const runLoop: (input: LoopInput) => Effect.Effect<MessageV2.WithParts, NotFoundError> = Effect.fn(
+    const runLoop: (input: LoopInput) => Effect.Effect<MessageV2.WithParts, NotFoundError | Session.BusyError> = Effect.fn(
       "SessionPrompt.run",
     )(function* (input: LoopInput) {
       const sessionID = input.sessionID
@@ -1631,6 +1631,8 @@ export const layer = Layer.effect(
         step++
 
         const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
+        if (model.providerID === "openai")
+          yield* sessions.ensureBinding({ sessionID, provider: model.providerID }) // kilocode_change - migrate absent state before auth resolution
         const task = tasks.pop()
 
         if (task?.type === "subtask") {
@@ -2491,9 +2493,9 @@ export const layer = Layer.effect(
       cancel,
       paused: (id) => control.paused(id), // kilocode_change - wakeup resume reads it before forking a turn
       prompt,
-      loop: (input) => loop(input).pipe(Effect.orDie),
-      shell,
-      command,
+      loop: (input) => sessions.turn(input.sessionID, loop(input).pipe(Effect.orDie)), // kilocode_change
+      shell: (input) => sessions.turn(input.sessionID, shell(input)), // kilocode_change
+      command: (input) => sessions.turn(input.sessionID, command(input)), // kilocode_change
       resolvePromptParts,
     })
   }),

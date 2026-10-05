@@ -7643,6 +7643,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "SessionBusyError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionBusyError"
+                }
+              }
+            }
           }
         },
         "description": "Analyze the current application and create an AGENTS.md file with project-specific agent configurations.",
@@ -7908,6 +7918,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "SessionBusyError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionBusyError"
                 }
               }
             }
@@ -21952,6 +21972,1204 @@
           {
             "lang": "js",
             "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.memory.purge({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/provider-accounts": {
+      "get": {
+        "tags": ["provider-accounts"],
+        "operationId": "providerAccounts.list",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider accounts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderAccountList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ProviderAccountApiError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ProviderAccountApiError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "List safe metadata for local OAuth profiles; credentials are never returned.",
+        "summary": "List provider accounts",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.providerAccounts.list({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/provider-accounts/{accountID}": {
+      "get": {
+        "tags": ["provider-accounts"],
+        "operationId": "providerAccounts.get",
+        "parameters": [
+          {
+            "name": "accountID",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderAccountInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ProviderAccountApiError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ProviderAccountApiError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get safe metadata and credential health for one local OAuth profile.",
+        "summary": "Get provider account",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.providerAccounts.get({\n  ...\n})"
+          }
+        ]
+      },
+      "patch": {
+        "tags": ["provider-accounts"],
+        "operationId": "providerAccounts.rename",
+        "parameters": [
+          {
+            "name": "accountID",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Renamed provider account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderAccountInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ProviderAccountApiError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ProviderAccountApiError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Change the local display label of a provider account.",
+        "summary": "Rename provider account",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "required": ["label"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.providerAccounts.rename({\n  ...\n})"
+          }
+        ]
+      },
+      "delete": {
+        "tags": ["provider-accounts"],
+        "operationId": "providerAccounts.remove",
+        "parameters": [
+          {
+            "name": "accountID",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider account removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean",
+                  "description": "Provider account removed"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ProviderAccountApiError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ProviderAccountApiError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Remove one local provider profile and its credential.",
+        "summary": "Remove provider account",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.providerAccounts.remove({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/provider-accounts/{accountID}/auth-state": {
+      "get": {
+        "tags": ["provider-accounts"],
+        "operationId": "providerAccounts.authState",
+        "parameters": [
+          {
+            "name": "accountID",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider account credential health",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderAccountAuthState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ProviderAccountApiError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ProviderAccountApiError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Report safe credential health derived from its stored expiration without refreshing it.",
+        "summary": "Get provider account credential health",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.providerAccounts.authState({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/provider-accounts/oauth/start": {
+      "post": {
+        "tags": ["provider-accounts"],
+        "operationId": "providerAccounts.oauth.start",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OAuth operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderAccountOAuthOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ProviderAccountApiError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ProviderAccountApiError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Start an isolated OAuth operation and return its authorization URL and opaque operation ID.",
+        "summary": "Start adding a provider account",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "required": ["label"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.providerAccounts.oauth.start({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/provider-accounts/{accountID}/oauth/start": {
+      "post": {
+        "tags": ["provider-accounts"],
+        "operationId": "providerAccounts.oauth.reauthenticate",
+        "parameters": [
+          {
+            "name": "accountID",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OAuth reauthentication operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderAccountOAuthOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ProviderAccountApiError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ProviderAccountApiError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Start an isolated reauthentication bound to the target profile's expected credential revision.",
+        "summary": "Start provider account reauthentication",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expectedRevision": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": ["expectedRevision"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.providerAccounts.oauth.reauthenticate({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/provider-accounts/oauth/complete": {
+      "post": {
+        "tags": ["provider-accounts"],
+        "operationId": "providerAccounts.oauth.complete",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OAuth operation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderAccountOAuthResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ProviderAccountApiError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ProviderAccountApiError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Complete one isolated OAuth operation. Credentials remain server-side and are not returned.",
+        "summary": "Complete provider OAuth",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "operationID": {
+                    "type": "string"
+                  }
+                },
+                "required": ["operationID"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.providerAccounts.oauth.complete({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/provider-accounts/oauth/{operationID}": {
+      "delete": {
+        "tags": ["provider-accounts"],
+        "operationId": "providerAccounts.oauth.cancel",
+        "parameters": [
+          {
+            "name": "operationID",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OAuth operation canceled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean",
+                  "description": "OAuth operation canceled"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ProviderAccountApiError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ProviderAccountApiError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cancel one unfinished OAuth operation by its opaque operation ID.",
+        "summary": "Cancel provider OAuth",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.providerAccounts.oauth.cancel({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/provider-accounts/{providerID}/default": {
+      "put": {
+        "tags": ["provider-accounts"],
+        "operationId": "providerAccounts.default.select",
+        "parameters": [
+          {
+            "name": "providerID",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default provider account selected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean",
+                  "description": "Default provider account selected"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ProviderAccountApiError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ProviderAccountApiError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Select the local default OAuth profile for a provider.",
+        "summary": "Select default provider account",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "accountID": {
+                    "type": "string"
+                  }
+                },
+                "required": ["accountID"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.providerAccounts.default.select({\n  ...\n})"
+          }
+        ]
+      },
+      "delete": {
+        "tags": ["provider-accounts"],
+        "operationId": "providerAccounts.default.clear",
+        "parameters": [
+          {
+            "name": "providerID",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default provider account cleared",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean",
+                  "description": "Default provider account cleared"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ProviderAccountApiError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ProviderAccountApiError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Clear the selected default without selecting another profile.",
+        "summary": "Clear default provider account",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.providerAccounts.default.clear({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/session/{sessionID}/provider-accounts/{providerID}": {
+      "put": {
+        "tags": ["provider-accounts"],
+        "operationId": "providerAccounts.session.assign",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses.*"
+            },
+            "required": true
+          },
+          {
+            "name": "providerID",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session provider account bindings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "type": "number",
+                      "enum": [1]
+                    },
+                    "providers": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "mode": {
+                                "type": "string",
+                                "enum": ["unbound"]
+                              },
+                              "reason": {
+                                "type": "string",
+                                "enum": ["profile-required", "missing-profile", "legacy-migration-pending"]
+                              }
+                            },
+                            "required": ["mode", "reason"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "mode": {
+                                "type": "string",
+                                "enum": ["profile"]
+                              },
+                              "profileID": {
+                                "type": "string"
+                              },
+                              "authMode": {
+                                "type": "string"
+                              },
+                              "source": {
+                                "type": "string",
+                                "enum": ["default", "explicit", "inherited", "repair"]
+                              }
+                            },
+                            "required": ["mode", "profileID", "authMode", "source"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "mode": {
+                                "type": "string",
+                                "enum": ["legacy"]
+                              },
+                              "authMode": {
+                                "type": "string"
+                              },
+                              "source": {
+                                "type": "string",
+                                "enum": ["explicit", "environment", "migration"]
+                              },
+                              "accountID": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["mode", "authMode", "source"],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "required": ["version", "providers"],
+                  "additionalProperties": false,
+                  "description": "Session provider account bindings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ProviderAccountApiError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ProviderAccountApiError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Assign or explicitly repair an opaque provider profile binding for a session.",
+        "summary": "Assign session provider account",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "accountID": {
+                    "type": "string"
+                  },
+                  "confirmRepair": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["accountID"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.providerAccounts.session.assign({\n  ...\n})"
+          }
+        ]
+      },
+      "get": {
+        "tags": ["provider-accounts"],
+        "operationId": "providerAccounts.session.get",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses.*"
+            },
+            "required": true
+          },
+          {
+            "name": "providerID",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session provider account binding",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderAccountSessionBinding"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ProviderAccountApiError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ProviderAccountApiError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read the safe local provider profile binding for a session.",
+        "summary": "Get session provider account binding",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.providerAccounts.session.get({\n  ...\n})"
           }
         ]
       }
@@ -38532,6 +39750,23 @@
         "required": ["id", "slug", "projectID", "directory", "title", "version", "time"],
         "additionalProperties": false
       },
+      "SessionBusyError": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["SessionBusyError"]
+          },
+          "sessionID": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["_tag", "sessionID", "message"],
+        "additionalProperties": false
+      },
       "Session6": {
         "type": "object",
         "properties": {
@@ -39024,23 +40259,6 @@
           }
         },
         "required": ["type", "prompt", "description", "agent"],
-        "additionalProperties": false
-      },
-      "SessionBusyError": {
-        "type": "object",
-        "properties": {
-          "_tag": {
-            "type": "string",
-            "enum": ["SessionBusyError"]
-          },
-          "sessionID": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          }
-        },
-        "required": ["_tag", "sessionID", "message"],
         "additionalProperties": false
       },
       "Session8": {
@@ -42325,6 +43543,192 @@
         },
         "required": ["name", "data"],
         "additionalProperties": false
+      },
+      "ProviderAccountInfo": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "authMode": {
+            "type": "string",
+            "enum": ["chatgpt-oauth"]
+          },
+          "label": {
+            "type": "string"
+          },
+          "remoteID": {
+            "type": "string"
+          },
+          "timeCreated": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "timeUpdated": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "authState": {
+            "type": "string",
+            "enum": ["ready", "expired", "missing"]
+          }
+        },
+        "required": ["id", "provider", "authMode", "label", "timeCreated", "timeUpdated", "isDefault", "authState"],
+        "additionalProperties": false
+      },
+      "ProviderAccountList": {
+        "type": "object",
+        "properties": {
+          "accounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProviderAccountInfo"
+            }
+          },
+          "defaultAccountID": {
+            "type": "string"
+          }
+        },
+        "required": ["accounts"],
+        "additionalProperties": false
+      },
+      "ProviderAccountApiError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "Disabled",
+              "NotFound",
+              "Conflict",
+              "Duplicate",
+              "IdentityMismatch",
+              "InvalidRequest",
+              "OAuthFailed",
+              "StorageFailed"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["error", "message"],
+        "additionalProperties": false
+      },
+      "ProviderAccountAuthState": {
+        "type": "object",
+        "properties": {
+          "accountID": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["ready", "expired", "missing"]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": ["accountID", "state"],
+        "additionalProperties": false
+      },
+      "ProviderAccountOAuthOperation": {
+        "type": "object",
+        "properties": {
+          "operationID": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "instructions": {
+            "type": "string"
+          }
+        },
+        "required": ["operationID", "url", "instructions"],
+        "additionalProperties": false
+      },
+      "ProviderAccountOAuthResult": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/ProviderAccountInfo"
+          }
+        },
+        "required": ["account"],
+        "additionalProperties": false
+      },
+      "ProviderAccountSessionBinding": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": ["unbound"]
+              },
+              "reason": {
+                "type": "string",
+                "enum": ["profile-required", "missing-profile", "legacy-migration-pending"]
+              }
+            },
+            "required": ["mode", "reason"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": ["profile"]
+              },
+              "profileID": {
+                "type": "string"
+              },
+              "authMode": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": ["default", "explicit", "inherited", "repair"]
+              }
+            },
+            "required": ["mode", "profileID", "authMode", "source"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": ["legacy"]
+              },
+              "authMode": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": ["explicit", "environment", "migration"]
+              },
+              "accountID": {
+                "type": "string"
+              }
+            },
+            "required": ["mode", "authMode", "source"],
+            "additionalProperties": false
+          }
+        ]
       },
       "UnauthorizedError": {
         "type": "object",
@@ -61783,6 +63187,10 @@
     {
       "name": "memory",
       "description": "Kilo memory routes."
+    },
+    {
+      "name": "provider-accounts",
+      "description": "Guarded lifecycle APIs for local provider OAuth profiles."
     },
     {
       "name": "Kilo HttpApi",

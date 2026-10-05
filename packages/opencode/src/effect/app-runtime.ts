@@ -58,6 +58,7 @@ import { Notebook } from "@/kilocode/notebook/service"
 import { SessionDrain } from "@/kilocode/session/drain"
 import { AgentManager } from "@/kilocode/agent-manager/service"
 import { Wakeup } from "@/kilocode/wakeup"
+import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles"
 // kilocode_change end
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -74,6 +75,7 @@ import { Pty } from "@opencode-ai/core/pty" // kilocode_change
 const memory = LayerNode.make({ service: MemoryService.Service, layer: MemoryService.layer, deps: [] })
 const kilo = LayerNode.group([
   Credential.node,
+  ProviderAccountProfiles.node,
   ModelCache.node,
   AgentManager.node,
   Notebook.node,
@@ -144,6 +146,7 @@ export const AppLayer = AppNodeBuilderV1.build(
     Pty.shutdownNode, // kilocode_change
     // kilocode_change end
   ]),
+  [[ProviderAccountProfiles.node, ProviderAccountProfiles.activation]], // kilocode_change - gate all profile consumers on legacy import readiness
 ).pipe(Layer.provideMerge(AppNodeBuilderV1.build(Ripgrep.node)), Layer.provideMerge(Observability.layer))
 
 const rt = ManagedRuntime.make(AppLayer, { memoMap })

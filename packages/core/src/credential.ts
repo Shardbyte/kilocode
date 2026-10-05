@@ -17,6 +17,7 @@ import path from "path"
 import { parse as parseKiloAccounts } from "./kilocode/credential-migration"
 import { isBusy } from "./kilocode/sqlite-error"
 import { NonNegativeInt } from "./schema"
+import { ImportTable } from "./kilocode/provider-account-profiles/sql" // kilocode_change
 // kilocode_change end
 
 export const ID = Credential.ID
@@ -171,6 +172,12 @@ export const legacyImportLayer = Layer.effectDiscard(
       const integration = Integration.ID.make(integrationID.replace(/\/+$/, ""))
       return [{ integration, value: legacyValue(integration, decoded.value) }]
     })
+    // kilocode_change start - once profile activation has imported ChatGPT OAuth, legacy reconciliation must not restore it
+    const profileImport =
+      process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES === "1"
+        ? yield* db.select().from(ImportTable).where(eq(ImportTable.name, "chatgpt-oauth-v1")).get()
+        : undefined
+    // kilocode_change end
     const migrated = yield* db.select().from(DataMigrationTable).where(eq(DataMigrationTable.name, name)).get()
     const existing = yield* db.select().from(CredentialTable).orderBy(desc(CredentialTable.time_created)).all()
     const same = (left: Value, right: Value) => JSON.stringify(left) === JSON.stringify(right)
@@ -185,6 +192,9 @@ export const legacyImportLayer = Layer.effectDiscard(
     yield* db.transaction((tx) =>
       Effect.gen(function* () {
         for (const item of values) {
+          // kilocode_change - API keys and all non-OpenAI credentials remain on the legacy path
+          if (profileImport && item.integration === Integration.ID.make("openai") && item.value.type === "oauth")
+            continue
           // reconcile on every startup so a released client can update auth.json after import.
           const current = yield* tx
             .select()
@@ -290,6 +300,23 @@ export const layer = Layer.effect(
       lock.withPermit(
         Effect.gen(function* () {
           if (!fs || !global || isolated) return
+          // kilocode_change start - keep imported ChatGPT OAuth out of legacy auth writeback without affecting API keys
+          if (
+            process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES === "1" &&
+            integration === Integration.ID.make("openai")
+          ) {
+            const marker = yield* db.select().from(ImportTable).where(eq(ImportTable.name, "chatgpt-oauth-v1")).get()
+            const latest = marker
+              ? yield* db
+                  .select()
+                  .from(CredentialTable)
+                  .where(eq(CredentialTable.integration_id, integration))
+                  .orderBy(desc(CredentialTable.time_created))
+                  .get()
+              : undefined
+            if (latest && decode(latest.value).type === "oauth") return
+          }
+          // kilocode_change end
           const file = path.join(global.data, "auth.json")
           const raw = yield* fs.readJson(file).pipe(
             Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed({})),
@@ -400,7 +427,7 @@ export const layer = Layer.effect(
             }),
           )
           .pipe(Effect.orDie)
-        yield* writeLegacy(credential.integrationID) // kilocode_change
+        yield* writeLegacy(credential.integrationID).pipe(Effect.orDie) // kilocode_change
         return credential
       }),
       update: Effect.fn("Credential.update")(function* (id, updates) {
@@ -427,7 +454,7 @@ export const layer = Layer.effect(
           .where(eq(CredentialTable.id, id))
           .run()
           .pipe(Effect.orDie)
-        if (row?.integration_id) yield* writeLegacy(row.integration_id) // kilocode_change
+        if (row?.integration_id) yield* writeLegacy(row.integration_id).pipe(Effect.orDie) // kilocode_change
       }),
       remove: Effect.fn("Credential.remove")(function* (id) {
         // kilocode_change start - isolated removals remain process-local
@@ -439,7 +466,7 @@ export const layer = Layer.effect(
         const row = yield* db.select().from(CredentialTable).where(eq(CredentialTable.id, id)).get().pipe(Effect.orDie)
         // kilocode_change end
         yield* db.delete(CredentialTable).where(eq(CredentialTable.id, id)).run().pipe(Effect.orDie)
-        if (row?.integration_id) yield* writeLegacy(row.integration_id) // kilocode_change
+        if (row?.integration_id) yield* writeLegacy(row.integration_id).pipe(Effect.orDie) // kilocode_change
       }),
     })
   }),

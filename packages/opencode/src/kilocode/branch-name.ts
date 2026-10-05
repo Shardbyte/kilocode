@@ -6,6 +6,7 @@ import { Provider } from "@/provider/provider"
 import { LLM } from "@/session/llm"
 import { MessageV2 } from "@/session/message-v2"
 import { MessageID, SessionID } from "@/session/schema"
+import { Session } from "@/session/session"
 import { Effect } from "effect"
 
 const LIMIT = 4
@@ -102,7 +103,7 @@ export const generate = Effect.fn("BranchName.generate")(function* (input: {
     model: { providerID: model.providerID, modelID: model.id },
   }
   const body = input.messages.map((message, index) => `${index + 1}. ${message}`).join("\n\n")
-  const result = yield* KiloLLM.text(
+  const stream = KiloLLM.text(
     llm.stream({
       agent,
       user,
@@ -111,9 +112,25 @@ export const generate = Effect.fn("BranchName.generate")(function* (input: {
       small: true,
       messages: [{ role: "user", content: `User messages, oldest to newest:\n\n${body}` }],
       sessionID: `branch-name:${input.sessionID}`,
+      ...(model.providerID === "openai" && {
+        providerAccountContext: { kind: "branch-name" as const, sourceSessionID: input.sessionID },
+      }),
       system: [],
       retries: 1,
     }),
   )
+  const result =
+    model.providerID === "openai"
+      ? yield* Effect.gen(function* () {
+          const session = yield* Session.Service
+          return yield* session.turn(
+            input.sessionID,
+            Effect.gen(function* () {
+              yield* session.ensureBinding({ sessionID: input.sessionID, provider: "openai" })
+              return yield* stream
+            }),
+          )
+        })
+      : yield* stream
   return parse(result)
 })

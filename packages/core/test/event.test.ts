@@ -199,6 +199,29 @@ describe("EventV2", () => {
     }),
   )
 
+  // kilocode_change start - provider binding snapshots are encoded as event data before projection/notification
+  it.effect("prepares durable event data inside its encoding transaction", () =>
+    Effect.gen(function* () {
+      const events = yield* EventV2.Service
+      const { db } = yield* Database.Service
+      const aggregateID = EventV2.ID.create()
+      const received = new Array<string>()
+      yield* events.project(SyncMessage, (event) => Effect.sync(() => received.push(event.data.text)))
+
+      const event = yield* events.publish(
+        SyncMessage,
+        { id: aggregateID, text: "before" },
+        { prepare: (data) => Effect.succeed({ ...data, text: "snapshot" }) },
+      )
+      const row = yield* db.select().from(EventTable).where(eq(EventTable.aggregate_id, aggregateID)).get()
+
+      expect(event.data.text).toBe("snapshot")
+      expect(received).toEqual(["snapshot"])
+      expect(row?.data).toEqual({ id: aggregateID, text: "snapshot" })
+    }),
+  )
+  // kilocode_change end
+
   it.effect("rolls back the durable event and projector when the local commit fails", () =>
     Effect.gen(function* () {
       const events = yield* EventV2.Service

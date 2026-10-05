@@ -30,6 +30,7 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ModelStatus } from "./model-status"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles" // kilocode_change
 // kilocode_change start
 import {
   KILO_BUNDLED_PROVIDERS,
@@ -50,6 +51,8 @@ import {
 } from "@/kilocode/provider/provider"
 import * as ModelsRefresh from "@/kilocode/provider/models-refresh"
 import { bedrockAuth, providerKey, vertexAuth, vertexCredentials, vertexOptions } from "@/kilocode/provider/cloud-auth"
+import { fetch as codexProfileFetch } from "@/kilocode/provider/codex-profile"
+import { OAUTH_DUMMY_KEY } from "@/auth"
 // kilocode_change end
 import { ProviderError } from "./error"
 
@@ -1249,7 +1252,7 @@ export interface Interface {
   readonly list: () => Effect.Effect<Record<ProviderV2.ID, Info>>
   readonly getProvider: (providerID: ProviderV2.ID) => Effect.Effect<Info>
   readonly getModel: (providerID: ProviderV2.ID, modelID: ModelV2.ID) => Effect.Effect<Model, ModelNotFoundError>
-  readonly getLanguage: (model: Model) => Effect.Effect<LanguageModelV3, ModelNotFoundError>
+  readonly getLanguage: (model: Model, profileID?: string) => Effect.Effect<LanguageModelV3, ModelNotFoundError> // kilocode_change
   readonly closest: (
     providerID: ProviderV2.ID,
     query: string[],
@@ -1450,6 +1453,7 @@ const layer = Layer.effect(
     const plugin = yield* Plugin.Service
     const modelsDevSvc = yield* ModelsDev.Service
     const runtimeFlags = yield* RuntimeFlags.Service
+    const profiles = yield* ProviderAccountProfiles.Service // kilocode_change
 
     const state = yield* InstanceState.make<State>(() =>
       Effect.gen(function* () {
@@ -1627,11 +1631,7 @@ const layer = Layer.effect(
               existingModel?.api.npm === m.api.npm
                 ? (existingModel.variants ?? ProviderTransform.variants(m))
                 : ProviderTransform.variants(m)
-            const generated = customProviderVariants(
-              parsedModel,
-              model.provider?.npm ?? provider.npm,
-              baseGenerate,
-            )
+            const generated = customProviderVariants(parsedModel, model.provider?.npm ?? provider.npm, baseGenerate)
             const merged = mergeDeep(generated, model.variants ?? {})
             // kilocode_change end
             parsedModel.variants = mapValues(
@@ -1742,6 +1742,12 @@ const layer = Layer.effect(
           if (provider.options) partial.options = provider.options
           mergeProvider(providerID, partial)
         }
+        // kilocode_change start - expose the bundled OpenAI catalog when profiles are the only credentials
+        if (ProviderAccountProfiles.enabled() && isProviderAllowed(ProviderV2.ID.make("openai"))) {
+          const accounts = yield* profiles.list("openai", "chatgpt-oauth").pipe(Effect.orDie)
+          if (accounts.length) mergeProvider(ProviderV2.ID.make("openai"), { source: "custom" })
+        }
+        // kilocode_change end
         patchKiloProviderPrivacy(providers[ProviderV2.ID.make("kilo")], cfg) // kilocode_change
         patchKiloProviderAuth(providers[ProviderV2.ID.make("kilo")], cfg, auths["kilo"]) // kilocode_change
 
@@ -1823,10 +1829,34 @@ const layer = Layer.effect(
 
     const list = Effect.fn("Provider.list")(() => InstanceState.use(state, (s) => s.providers))
 
-    async function resolveSDK(model: Model, s: State, envs: Record<string, string | undefined>) {
+    // kilocode_change start
+    async function resolveSDK(
+      model: Model,
+      s: State,
+      envs: Record<string, string | undefined>,
+      profileID?: string, // kilocode_change
+    ) {
+      // kilocode_change end
       try {
         const provider = s.providers[model.providerID]
         const options = { ...provider.options }
+        // kilocode_change start - profile-bound Codex execution rejects conflicting user credentials/routing
+        if (profileID) {
+          const headers = { ...options.headers, ...model.headers }
+          const conflict =
+            (options.apiKey !== undefined && options.apiKey !== OAUTH_DUMMY_KEY) ||
+            options.baseURL !== undefined ||
+            model.options?.apiKey !== undefined ||
+            model.options?.baseURL !== undefined ||
+            Object.keys(headers).some((key) => key.toLowerCase() === "authorization")
+          if (conflict)
+            throw new Error(
+              "Codex account profiles cannot be combined with provider API key, base URL, or authorization-header overrides",
+            )
+          options.apiKey = OAUTH_DUMMY_KEY
+          options.fetch = codexProfileFetch(profileID, profiles)
+        }
+        // kilocode_change end
         vertexOptions(model.providerID, model.api.npm, options) // kilocode_change - hydrate stored credentials
 
         if (
@@ -1882,6 +1912,7 @@ const layer = Layer.effect(
           JSON.stringify({
             providerID: model.providerID,
             npm: model.api.npm,
+            profileID, // kilocode_change - function-valued fetch hooks are omitted by JSON.stringify
             options,
           }),
         )
@@ -2006,16 +2037,19 @@ const layer = Layer.effect(
       return info
     })
 
-    const getLanguage = Effect.fn("Provider.getLanguage")(function* (model: Model) {
+    // kilocode_change start
+    const getLanguage = Effect.fn("Provider.getLanguage")(function* (model: Model, profileID?: string) {
+      // kilocode_change end
+      // kilocode_change
       const s = yield* InstanceState.get(state)
-      const envs = yield* env.all()
-      const key = `${model.providerID}/${model.id}`
+      const envs = profileID ? {} : yield* env.all() // kilocode_change - profile mode never resolves environment credentials
+      const key = `${model.providerID}/${model.id}${profileID ? `/profile/${profileID}` : ""}` // kilocode_change
       if (s.models.has(key)) return s.models.get(key)!
 
       const provider = s.providers[model.providerID]
       return yield* EffectPromise.refineRejection(
         async () => {
-          const sdk = await resolveSDK(model, s, envs)
+          const sdk = await resolveSDK(model, s, envs, profileID) // kilocode_change
           const language = s.modelLoaders[model.providerID]
             ? await s.modelLoaders[model.providerID](
                 sdk,
@@ -2204,7 +2238,18 @@ export function parseModel(model: string) {
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
-  deps: [FSUtil.node, Config.node, Auth.node, Env.node, Plugin.node, ModelsDev.node, RuntimeFlags.node],
+  // kilocode_change start
+  deps: [
+    FSUtil.node,
+    Config.node,
+    Auth.node,
+    Env.node,
+    Plugin.node,
+    ModelsDev.node,
+    RuntimeFlags.node,
+    ProviderAccountProfiles.node,
+  ],
+  // kilocode_change end
 })
 
 export * as Provider from "./provider"

@@ -7,6 +7,7 @@ import { Credential } from "@opencode-ai/core/credential"
 import { CredentialTable } from "@opencode-ai/core/credential/sql" // kilocode_change
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Integration } from "@opencode-ai/core/integration"
+import { ImportTable } from "@opencode-ai/core/kilocode/provider-account-profiles/sql" // kilocode_change
 // kilocode_change start
 import { Database } from "@opencode-ai/core/database/database"
 import { FSUtil } from "@opencode-ai/core/fs-util"
@@ -209,6 +210,72 @@ describe("Credential", () => {
       ),
     ),
   )
+
+  // kilocode_change start - profile activation isolates only imported OpenAI OAuth from legacy reconciliation
+  it.live("does not reconcile imported OpenAI OAuth after profile activation", () =>
+    Effect.acquireUseRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => {
+        const file = path.join(tmp.path, "credential.db")
+        const before = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+        process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+        return Effect.gen(function* () {
+          yield* Effect.promise(() =>
+            Bun.write(
+              path.join(tmp.path, "auth.json"),
+              JSON.stringify({
+                openai: { type: "oauth", refresh: "legacy-refresh", access: "legacy-access", expires: 1 },
+                azure: { type: "api", key: "legacy-key" },
+              }),
+            ),
+          )
+          const store = yield* Database.Service
+          yield* store.db
+            .insert(ImportTable)
+            .values({ name: "chatgpt-oauth-v1", account_id: "deleted-profile", time_completed: Date.now() })
+            .run()
+          const layer = importer(tmp.path, store)
+          yield* Layer.build(Layer.fresh(layer))
+          const records = yield* store.db.select().from(CredentialTable).all()
+          expect(records.map((row) => row.integration_id)).not.toContain(Integration.ID.make("openai"))
+          expect(records.map((row) => row.integration_id)).toContain(Integration.ID.make("azure"))
+          yield* Effect.gen(function* () {
+            const service = yield* Credential.Service
+            yield* service.create({
+              integrationID: Integration.ID.make("openai"),
+              value: Credential.OAuth.make({
+                type: "oauth",
+                methodID: Integration.MethodID.make("chatgpt-browser"),
+                refresh: "profile-refresh",
+                access: "profile-access",
+                expires: 2,
+              }),
+            })
+            yield* service.create({
+              integrationID: Integration.ID.make("azure"),
+              value: Credential.Key.make({ type: "key", key: "updated-legacy-key" }),
+            })
+          }).pipe(Effect.provide(localLayer(tmp.path)), Effect.scoped)
+          const written = yield* Effect.promise(() => Bun.file(path.join(tmp.path, "auth.json")).json())
+          expect(written).toMatchObject({
+            openai: { type: "oauth", refresh: "legacy-refresh", access: "legacy-access", expires: 1 },
+            azure: { type: "api", key: "updated-legacy-key" },
+          })
+        }).pipe(
+          Effect.provide(Database.layerFromPath(file)),
+          Effect.scoped,
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (before === undefined) delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+              else process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = before
+            }),
+          ),
+        )
+      },
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ),
+  )
+  // kilocode_change end
 
   it.live("skips unchanged legacy writes and defers locked reconciliation", () =>
     Effect.acquireUseRelease(

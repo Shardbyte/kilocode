@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "d869c02a-aaf7-43f9-90b5-306d0792d09b",
+  "id": "f9d94b53-328f-413e-a463-a57491fee4f5",
   "prevIds": [
-    "8e919778-bf29-4e1b-a106-88bc9d8b8b21"
+    "b5d93b65-7e09-4bb7-a780-41da5e48932e"
   ],
   "ddl": [
     {
@@ -51,11 +51,23 @@
       "entityType": "tables"
     },
     {
+      "name": "kilo_provider_account_import",
+      "entityType": "tables"
+    },
+    {
       "name": "kilo_provider_account",
       "entityType": "tables"
     },
     {
+      "name": "kilo_provider_account_refresh_lock",
+      "entityType": "tables"
+    },
+    {
       "name": "kilo_provider_account_credential",
+      "entityType": "tables"
+    },
+    {
+      "name": "kilo_session_turn_lock",
       "entityType": "tables"
     },
     {
@@ -798,6 +810,36 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "name",
+      "entityType": "columns",
+      "table": "kilo_provider_account_import"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "account_id",
+      "entityType": "columns",
+      "table": "kilo_provider_account_import"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_completed",
+      "entityType": "columns",
+      "table": "kilo_provider_account_import"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "id",
       "entityType": "columns",
       "table": "kilo_provider_account"
@@ -880,6 +922,46 @@
       "generated": null,
       "name": "account_id",
       "entityType": "columns",
+      "table": "kilo_provider_account_refresh_lock"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "owner_pid",
+      "entityType": "columns",
+      "table": "kilo_provider_account_refresh_lock"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "owner_host",
+      "entityType": "columns",
+      "table": "kilo_provider_account_refresh_lock"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "owner_token",
+      "entityType": "columns",
+      "table": "kilo_provider_account_refresh_lock"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "account_id",
+      "entityType": "columns",
       "table": "kilo_provider_account_credential"
     },
     {
@@ -911,6 +993,46 @@
       "name": "time_updated",
       "entityType": "columns",
       "table": "kilo_provider_account_credential"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "kilo_session_turn_lock"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "owner_pid",
+      "entityType": "columns",
+      "table": "kilo_session_turn_lock"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "owner_host",
+      "entityType": "columns",
+      "table": "kilo_session_turn_lock"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "owner_token",
+      "entityType": "columns",
+      "table": "kilo_session_turn_lock"
     },
     {
       "type": "text",
@@ -2234,6 +2356,15 @@
     },
     {
       "columns": [
+        "name"
+      ],
+      "nameExplicit": false,
+      "name": "kilo_provider_account_import_pk",
+      "table": "kilo_provider_account_import",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
         "id"
       ],
       "nameExplicit": false,
@@ -2246,8 +2377,26 @@
         "account_id"
       ],
       "nameExplicit": false,
+      "name": "kilo_provider_account_refresh_lock_pk",
+      "table": "kilo_provider_account_refresh_lock",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "account_id"
+      ],
+      "nameExplicit": false,
       "name": "kilo_provider_account_credential_pk",
       "table": "kilo_provider_account_credential",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "session_id"
+      ],
+      "nameExplicit": false,
+      "name": "kilo_session_turn_lock_pk",
+      "table": "kilo_session_turn_lock",
       "entityType": "pks"
     },
     {
@@ -2802,4 +2951,3 @@
   ],
   "renames": []
 }
-

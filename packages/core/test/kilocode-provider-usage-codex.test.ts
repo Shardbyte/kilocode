@@ -198,6 +198,81 @@ const connect = Effect.fn("CodexProviderUsageTest.connect")(function* (
 })
 
 describe("Codex provider usage service", () => {
+  it.live("withholds an in-flight legacy result when profile mode is enabled", () =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>()
+      const pending = Promise.withResolvers<Response>()
+      return yield* fixture(
+        () => {
+          Effect.runSync(Deferred.succeed(started, undefined))
+          return pending.promise
+        },
+        ({ usage, credentials, requests }) =>
+          Effect.gen(function* () {
+            yield* connect(credentials, { account: "TEST_LEGACY_ACCOUNT" })
+            const first = yield* usage.get().pipe(Effect.forkChild)
+            yield* Deferred.await(started).pipe(Effect.timeout("2 seconds"))
+            yield* Effect.acquireUseRelease(
+              Effect.sync(() => {
+                const previous = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+                process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+                return previous
+              }),
+              () =>
+                Effect.gen(function* () {
+                  pending.resolve(Response.json(payload()))
+                  expect((yield* Fiber.join(first)).items).toEqual([])
+                  expect((yield* usage.get()).items).toEqual([])
+                  expect(requests).toHaveLength(1)
+                }),
+              (previous) =>
+                Effect.sync(() => {
+                  if (previous == null) {
+                    delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+                    return
+                  }
+                  process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = previous
+                }),
+            )
+          }),
+      )
+    }),
+  )
+
+  it.live("withholds cached legacy usage and avoids credential resolution in profile mode", () =>
+    fixture(
+      async () => Response.json(payload()),
+      ({ usage, credentials, requests, refreshes }) =>
+        Effect.gen(function* () {
+          yield* connect(credentials, { account: "TEST_LEGACY_ACCOUNT" })
+          expect((yield* usage.get()).items).toHaveLength(1)
+          yield* connect(credentials, { account: "TEST_LEGACY_ACCOUNT", expires: 0 })
+          yield* Effect.acquireUseRelease(
+            Effect.sync(() => {
+              const previous = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+              process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+              return previous
+            }),
+            () =>
+              Effect.gen(function* () {
+                expect((yield* usage.get()).items).toEqual([])
+                expect((yield* usage.refresh()).items).toEqual([])
+                expect(requests).toHaveLength(1)
+                expect(refreshes.count).toBe(0)
+              }),
+            (previous) =>
+              Effect.sync(() => {
+                if (previous == null) {
+                  delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+                  return
+                }
+                process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = previous
+              }),
+          )
+        }),
+    ),
+  )
+
   it.live("uses OAuth bearer and account headers with bounded direct transport settings", () =>
     fixture(
       async () => Response.json(payload()),

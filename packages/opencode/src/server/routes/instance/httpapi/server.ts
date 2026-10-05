@@ -34,6 +34,7 @@ import { Question } from "@/question"
 import { Notebook } from "@/kilocode/notebook/service"
 import { AgentManager } from "@/kilocode/agent-manager/service"
 import { KiloViewers } from "@/kilocode/presence/service"
+import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles"
 // kilocode_change end
 import { SessionCompaction } from "@/session/compaction"
 import { Instruction } from "@/session/instruction"
@@ -239,6 +240,7 @@ const app = LayerNode.group([
   FSUtil.node,
   Database.node,
   Credential.node, // kilocode_change
+  ProviderAccountProfiles.node, // kilocode_change
   Auth.node,
   Account.node,
   Config.node,
@@ -341,7 +343,7 @@ export function createRoutes(
     ),
     Layer.provide(locationServiceMapV2),
 
-    Layer.provide(AppNodeBuilderV1.build(app)),
+    Layer.provide(AppNodeBuilderV1.build(app, [[ProviderAccountProfiles.node, ProviderAccountProfiles.activation]])), // kilocode_change
     // Must stay last: layers provided later in this pipe build beneath earlier ones,
     // so Observability must come after every service graph. Otherwise eagerly forked
     // fibers (e.g. the ModelsDev background refresh) capture Effect's default stdout

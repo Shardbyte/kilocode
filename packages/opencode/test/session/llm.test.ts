@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import path from "path"
 import { tool, type ModelMessage } from "ai"
-import { Cause, Effect, Exit, Fiber, Layer, Stream } from "effect"
+import { Cause, Context, Effect, Exit, Fiber, Layer, Stream } from "effect"
 import { InstanceRef } from "../../src/effect/instance-ref"
 import { HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 import z from "zod"
@@ -29,6 +29,8 @@ import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { LayerNodePlatform } from "@opencode-ai/core/effect/app-node-platform"
 import { ProviderError } from "@/provider/error"
+import { SessionBinding } from "@opencode-ai/core/kilocode/session-binding" // kilocode_change
+import { SessionProjector } from "@opencode-ai/core/session/projector" // kilocode_change
 
 type ConfigModel = NonNullable<NonNullable<NonNullable<ConfigV1.Info["provider"]>[string]>["models"]>[string] // kilocode_change
 
@@ -54,21 +56,58 @@ const openAIConfig = (model: ModelsDev.Provider["models"][string], baseURL: stri
   }
 }
 
-const it = testEffect(AppNodeBuilder.build(LayerNode.group([LLM.node, Provider.node])))
+const it = testEffect(AppNodeBuilder.build(LayerNode.group([Provider.node, SessionNs.node, SessionProjector.node]))) // kilocode_change
 
-// LLM.stream returns a Stream, not an Effect, so we can't use the serviceUse proxy.
-const drain = (input: LLM.StreamInput) => LLM.Service.use((svc) => svc.stream(input).pipe(Stream.runDrain))
+// LLM.stream returns a Stream, so build its isolated layer with the real session service from this instance. // kilocode_change
+const drain = (
+  input: LLM.StreamInput, // kilocode_change
+) =>
+  Effect.gen(function* () {
+    const session = yield* SessionNs.Service
+    const layer = AppNodeBuilder.build(LLM.node, [[SessionNs.node, Layer.succeed(SessionNs.Service, session)]])
+    return yield* LLM.Service.use((svc) => svc.stream(input).pipe(Stream.runDrain)).pipe(Effect.provide(layer))
+  }) // kilocode_change
 
 // collect runs the stream and returns every emitted LLMEvent for assertions. // kilocode_change
-const collect = (input: LLM.StreamInput) => // kilocode_change
-  LLM.Service.use((svc) => svc.stream(input).pipe(Stream.runCollect)) // kilocode_change
+const collect = (
+  input: LLM.StreamInput, // kilocode_change
+) =>
+  Effect.gen(function* () {
+    const session = yield* SessionNs.Service
+    const layer = AppNodeBuilder.build(LLM.node, [[SessionNs.node, Layer.succeed(SessionNs.Service, session)]])
+    return yield* LLM.Service.use((svc) => svc.stream(input).pipe(Stream.runCollect)).pipe(Effect.provide(layer))
+  }) // kilocode_change
+
+// kilocode_change start
+const explicitLegacySession = (id: string) =>
+  Effect.gen(function* () {
+    const sessions = yield* SessionNs.Service
+    const session = yield* sessions.create({ title: id })
+    expect(SessionBinding.get(session.metadata)?.providers.openai).toEqual({
+      mode: "legacy",
+      authMode: "legacy",
+      source: "explicit",
+    })
+    expect((yield* sessions.get(session.id)).id).toBe(session.id)
+    return session.id
+  })
+// kilocode_change end
 
 // drainWith builds an isolated runtime so custom replacements fully own LLM and
 // its transitive deps.
-const drainWith = (layer: Layer.Layer<LLM.Service>, input: LLM.StreamInput) =>
+const drainWith = (
+  options: {
+    client?: Layer.Layer<Context.Service.Identifier<typeof LLMClient.Service>>
+    executor?: Layer.Layer<RequestExecutor.Service>
+    flags?: Partial<RuntimeFlags.Info>
+  },
+  input: LLM.StreamInput,
+) =>
   Effect.gen(function* () {
     const ctx = yield* InstanceRef
     if (!ctx) return yield* Effect.die("InstanceRef not provided")
+    const session = yield* SessionNs.Service
+    const layer = llmLayerWithExecutor(options, session)
     return yield* Effect.promise(() =>
       Effect.runPromise(
         LLM.Service.use((svc) => svc.stream(input).pipe(Stream.runDrain)).pipe(
@@ -81,11 +120,15 @@ const drainWith = (layer: Layer.Layer<LLM.Service>, input: LLM.StreamInput) =>
 
 function llmLayerWithExecutor(
   options: {
+    client?: Layer.Layer<Context.Service.Identifier<typeof LLMClient.Service>>
     executor?: Layer.Layer<RequestExecutor.Service>
     flags?: Partial<RuntimeFlags.Info>
-  } = {},
+  },
+  session: SessionNs.Interface,
 ) {
   return AppNodeBuilder.build(LLM.node, [
+    [SessionNs.node, Layer.succeed(SessionNs.Service, session)],
+    ...(options.client ? ([[LayerNodePlatform.llmClient, options.client]] as const) : []),
     [RuntimeFlags.node, RuntimeFlags.layer(options.flags)],
     ...(options.executor ? ([[LayerNodePlatform.requestExecutor, options.executor]] as const) : []),
   ])
@@ -1373,7 +1416,7 @@ describe("session.llm.stream", () => {
         const request = waitRequest("/responses", createEventResponse(responseChunks, true))
 
         const resolved = yield* Provider.use.getModel(ProviderV2.ID.openai, ModelV2.ID.make(model.id))
-        const sessionID = SessionID.make("session-test-2")
+        const sessionID = yield* explicitLegacySession("session-test-2") // kilocode_change
         const agent = {
           name: "test",
           mode: "primary",
@@ -1479,7 +1522,7 @@ describe("session.llm.stream", () => {
         )
 
         const resolved = yield* Provider.use.getModel(ProviderV2.ID.openai, ModelV2.ID.make(model.id))
-        const sessionID = SessionID.make("session-test-native-flag-off")
+        const sessionID = yield* explicitLegacySession("session-test-native-flag-off") // kilocode_change
         const agent = {
           name: "test",
           mode: "primary",
@@ -1488,10 +1531,7 @@ describe("session.llm.stream", () => {
         } satisfies Agent.Info
 
         yield* drainWith(
-          AppNodeBuilder.build(LLM.node, [
-            [LayerNodePlatform.llmClient, failingNativeClient],
-            [RuntimeFlags.node, RuntimeFlags.layer({ experimentalNativeLlm: false })],
-          ]),
+          { client: failingNativeClient, flags: { experimentalNativeLlm: false } },
           {
             user: {
               id: MessageID.make("msg_user-native-flag-off"),
@@ -1545,7 +1585,7 @@ describe("session.llm.stream", () => {
         const request = waitRequest("/responses", createEventResponse(chunks, true))
 
         const resolved = yield* Provider.use.getModel(ProviderV2.ID.openai, ModelV2.ID.make(model.id))
-        const sessionID = SessionID.make("session-test-native")
+        const sessionID = yield* explicitLegacySession("session-test-native") // kilocode_change
         const agent = {
           name: "test",
           mode: "primary",
@@ -1554,22 +1594,25 @@ describe("session.llm.stream", () => {
           temperature: 0.2,
         } satisfies Agent.Info
 
-        yield* drainWith(llmLayerWithExecutor({ flags: { experimentalNativeLlm: true } }), {
-          user: {
-            id: MessageID.make("msg_user-native"),
+        yield* drainWith(
+          { flags: { experimentalNativeLlm: true } },
+          {
+            user: {
+              id: MessageID.make("msg_user-native"),
+              sessionID,
+              role: "user",
+              time: { created: Date.now() },
+              agent: agent.name,
+              model: { providerID: ProviderV2.ID.make("openai"), modelID: resolved.id, variant: "high" },
+            } satisfies SessionV1.User,
             sessionID,
-            role: "user",
-            time: { created: Date.now() },
-            agent: agent.name,
-            model: { providerID: ProviderV2.ID.make("openai"), modelID: resolved.id, variant: "high" },
-          } satisfies SessionV1.User,
-          sessionID,
-          model: resolved,
-          agent,
-          system: ["You are a helpful assistant."],
-          messages: [{ role: "user", content: "Hello" }],
-          tools: {},
-        })
+            model: resolved,
+            agent,
+            system: ["You are a helpful assistant."],
+            messages: [{ role: "user", content: "Hello" }],
+            tools: {},
+          },
+        )
 
         const capture = yield* Effect.promise(() => request)
         expect(capture.url.pathname.endsWith("/responses")).toBe(true)
@@ -1629,7 +1672,7 @@ describe("session.llm.stream", () => {
         )
 
         const resolved = yield* Provider.use.getModel(ProviderV2.ID.openai, ModelV2.ID.make(model.id))
-        const sessionID = SessionID.make("session-test-native-injected-tool")
+        const sessionID = yield* explicitLegacySession("session-test-native-injected-tool") // kilocode_change
         const agent = {
           name: "test",
           mode: "primary",
@@ -1637,31 +1680,34 @@ describe("session.llm.stream", () => {
           permission: [{ permission: "*", pattern: "*", action: "allow" }],
         } satisfies Agent.Info
 
-        yield* drainWith(llmLayerWithExecutor({ executor, flags: { experimentalNativeLlm: true } }), {
-          user: {
-            id: MessageID.make("msg_user-native-injected-tool"),
+        yield* drainWith(
+          { executor, flags: { experimentalNativeLlm: true } },
+          {
+            user: {
+              id: MessageID.make("msg_user-native-injected-tool"),
+              sessionID,
+              role: "user",
+              time: { created: Date.now() },
+              agent: agent.name,
+              model: { providerID: ProviderV2.ID.make("openai"), modelID: resolved.id },
+            } satisfies SessionV1.User,
             sessionID,
-            role: "user",
-            time: { created: Date.now() },
-            agent: agent.name,
-            model: { providerID: ProviderV2.ID.make("openai"), modelID: resolved.id },
-          } satisfies SessionV1.User,
-          sessionID,
-          model: resolved,
-          agent,
-          system: [],
-          messages: [{ role: "user", content: "Use lookup" }],
-          tools: {
-            lookup: tool({
-              description: "Lookup data",
-              inputSchema: z.object({ query: z.string() }),
-              execute: async (args, options) => {
-                executed = { args, toolCallId: options.toolCallId }
-                return { output: "looked up" }
-              },
-            }),
+            model: resolved,
+            agent,
+            system: [],
+            messages: [{ role: "user", content: "Use lookup" }],
+            tools: {
+              lookup: tool({
+                description: "Lookup data",
+                inputSchema: z.object({ query: z.string() }),
+                execute: async (args, options) => {
+                  executed = { args, toolCallId: options.toolCallId }
+                  return { output: "looked up" }
+                },
+              }),
+            },
           },
-        })
+        )
 
         expect(captured?.model).toBe(model.id)
         expect(captured?.tools).toEqual([
@@ -1718,7 +1764,7 @@ describe("session.llm.stream", () => {
         let executed: unknown
 
         const resolved = yield* Provider.use.getModel(ProviderV2.ID.openai, ModelV2.ID.make(model.id))
-        const sessionID = SessionID.make("session-test-native-tool")
+        const sessionID = yield* explicitLegacySession("session-test-native-tool") // kilocode_change
         const agent = {
           name: "test",
           mode: "primary",
@@ -1726,31 +1772,34 @@ describe("session.llm.stream", () => {
           permission: [{ permission: "*", pattern: "*", action: "allow" }],
         } satisfies Agent.Info
 
-        yield* drainWith(llmLayerWithExecutor({ flags: { experimentalNativeLlm: true } }), {
-          user: {
-            id: MessageID.make("msg_user-native-tool"),
+        yield* drainWith(
+          { flags: { experimentalNativeLlm: true } },
+          {
+            user: {
+              id: MessageID.make("msg_user-native-tool"),
+              sessionID,
+              role: "user",
+              time: { created: Date.now() },
+              agent: agent.name,
+              model: { providerID: ProviderV2.ID.make("openai"), modelID: resolved.id },
+            } satisfies SessionV1.User,
             sessionID,
-            role: "user",
-            time: { created: Date.now() },
-            agent: agent.name,
-            model: { providerID: ProviderV2.ID.make("openai"), modelID: resolved.id },
-          } satisfies SessionV1.User,
-          sessionID,
-          model: resolved,
-          agent,
-          system: [],
-          messages: [{ role: "user", content: "Use lookup" }],
-          tools: {
-            lookup: tool({
-              description: "Lookup data",
-              inputSchema: z.object({ query: z.string() }),
-              execute: async (args, options) => {
-                executed = { args, toolCallId: options.toolCallId }
-                return { output: "looked up" }
-              },
-            }),
+            model: resolved,
+            agent,
+            system: [],
+            messages: [{ role: "user", content: "Use lookup" }],
+            tools: {
+              lookup: tool({
+                description: "Lookup data",
+                inputSchema: z.object({ query: z.string() }),
+                execute: async (args, options) => {
+                  executed = { args, toolCallId: options.toolCallId }
+                  return { output: "looked up" }
+                },
+              }),
+            },
           },
-        })
+        )
 
         const capture = yield* Effect.promise(() => request)
         expect(capture.body.tools).toEqual([
@@ -1845,7 +1894,7 @@ describe("session.llm.stream", () => {
         ).toString("base64")}`
 
         const resolved = yield* Provider.use.getModel(ProviderV2.ID.openai, ModelV2.ID.make(model.id))
-        const sessionID = SessionID.make("session-test-data-url")
+        const sessionID = yield* explicitLegacySession("session-test-data-url") // kilocode_change
         const agent = {
           name: "test",
           mode: "primary",
@@ -2315,7 +2364,11 @@ describe("session.llm.stream", () => {
                     delta: {
                       role: "assistant",
                       content: null,
-                      tool_calls: [{ index: 0, id: "call-1", type: "function", function: { name: " bash", arguments: "" } }],
+                      // kilocode_change start - formatter wraps this existing long fixture array
+                      tool_calls: [
+                        { index: 0, id: "call-1", type: "function", function: { name: " bash", arguments: "" } },
+                      ],
+                      // kilocode_change end
                     },
                   },
                 ],
@@ -2407,7 +2460,11 @@ describe("session.llm.stream", () => {
                     delta: {
                       role: "assistant",
                       content: null,
-                      tool_calls: [{ index: 0, id: "call-1", type: "function", function: { name: "Write", arguments: "" } }],
+                      // kilocode_change start - formatter wraps this existing long fixture array
+                      tool_calls: [
+                        { index: 0, id: "call-1", type: "function", function: { name: "Write", arguments: "" } },
+                      ],
+                      // kilocode_change end
                     },
                   },
                 ],

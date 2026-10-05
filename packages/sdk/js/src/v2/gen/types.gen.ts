@@ -3562,6 +3562,12 @@ export type Session5 = {
   }
 }
 
+export type SessionBusyError = {
+  _tag: "SessionBusyError"
+  sessionID: string
+  message: string
+}
+
 export type Session6 = {
   id: string
   slug: string
@@ -3717,12 +3723,6 @@ export type SubtaskPartInput = {
   }
   variant?: string
   command?: string
-}
-
-export type SessionBusyError = {
-  _tag: "SessionBusyError"
-  sessionID: string
-  message: string
 }
 
 export type Session8 = {
@@ -4803,6 +4803,71 @@ export type MemoryApiServerError = {
     message: string
   }
 }
+
+export type ProviderAccountInfo = {
+  id: string
+  provider: string
+  authMode: "chatgpt-oauth"
+  label: string
+  remoteID?: string
+  timeCreated: number
+  timeUpdated: number
+  isDefault: boolean
+  revision?: number
+  authState: "ready" | "expired" | "missing"
+}
+
+export type ProviderAccountList = {
+  accounts: Array<ProviderAccountInfo>
+  defaultAccountID?: string
+}
+
+export type ProviderAccountApiError = {
+  error:
+    | "Disabled"
+    | "NotFound"
+    | "Conflict"
+    | "Duplicate"
+    | "IdentityMismatch"
+    | "InvalidRequest"
+    | "OAuthFailed"
+    | "StorageFailed"
+  message: string
+}
+
+export type ProviderAccountAuthState = {
+  accountID: string
+  state: "ready" | "expired" | "missing"
+  revision?: number
+}
+
+export type ProviderAccountOAuthOperation = {
+  operationID: string
+  url: string
+  instructions: string
+}
+
+export type ProviderAccountOAuthResult = {
+  account: ProviderAccountInfo
+}
+
+export type ProviderAccountSessionBinding =
+  | {
+      mode: "unbound"
+      reason: "profile-required" | "missing-profile" | "legacy-migration-pending"
+    }
+  | {
+      mode: "profile"
+      profileID: string
+      authMode: string
+      source: "default" | "explicit" | "inherited" | "repair"
+    }
+  | {
+      mode: "legacy"
+      authMode: string
+      source: "explicit" | "environment" | "migration"
+      accountID?: string
+    }
 
 export type UnauthorizedError = {
   _tag: "UnauthorizedError"
@@ -14000,6 +14065,10 @@ export type SessionInitErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * SessionBusyError
+   */
+  409: SessionBusyError
 }
 
 export type SessionInitError = SessionInitErrors[keyof SessionInitErrors]
@@ -14114,6 +14183,10 @@ export type SessionSummarizeErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * SessionBusyError
+   */
+  409: SessionBusyError
 }
 
 export type SessionSummarizeError = SessionSummarizeErrors[keyof SessionSummarizeErrors]
@@ -19448,6 +19521,494 @@ export type MemoryPurgeResponses = {
 }
 
 export type MemoryPurgeResponse = MemoryPurgeResponses[keyof MemoryPurgeResponses]
+
+export type ProviderAccountsListData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    provider: string
+  }
+  url: "/provider-accounts"
+}
+
+export type ProviderAccountsListErrors = {
+  /**
+   * ProviderAccountApiError | InvalidRequestError
+   */
+  400: ProviderAccountApiError | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProviderAccountsListError = ProviderAccountsListErrors[keyof ProviderAccountsListErrors]
+
+export type ProviderAccountsListResponses = {
+  /**
+   * Provider accounts
+   */
+  200: ProviderAccountList
+}
+
+export type ProviderAccountsListResponse = ProviderAccountsListResponses[keyof ProviderAccountsListResponses]
+
+export type ProviderAccountsRemoveData = {
+  body?: never
+  path: {
+    accountID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider-accounts/{accountID}"
+}
+
+export type ProviderAccountsRemoveErrors = {
+  /**
+   * ProviderAccountApiError | InvalidRequestError
+   */
+  400: ProviderAccountApiError | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProviderAccountsRemoveError = ProviderAccountsRemoveErrors[keyof ProviderAccountsRemoveErrors]
+
+export type ProviderAccountsRemoveResponses = {
+  /**
+   * Provider account removed
+   */
+  200: boolean
+}
+
+export type ProviderAccountsRemoveResponse = ProviderAccountsRemoveResponses[keyof ProviderAccountsRemoveResponses]
+
+export type ProviderAccountsGetData = {
+  body?: never
+  path: {
+    accountID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider-accounts/{accountID}"
+}
+
+export type ProviderAccountsGetErrors = {
+  /**
+   * ProviderAccountApiError | InvalidRequestError
+   */
+  400: ProviderAccountApiError | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProviderAccountsGetError = ProviderAccountsGetErrors[keyof ProviderAccountsGetErrors]
+
+export type ProviderAccountsGetResponses = {
+  /**
+   * Provider account
+   */
+  200: ProviderAccountInfo
+}
+
+export type ProviderAccountsGetResponse = ProviderAccountsGetResponses[keyof ProviderAccountsGetResponses]
+
+export type ProviderAccountsRenameData = {
+  body?: {
+    label: string
+  }
+  path: {
+    accountID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider-accounts/{accountID}"
+}
+
+export type ProviderAccountsRenameErrors = {
+  /**
+   * ProviderAccountApiError | InvalidRequestError
+   */
+  400: ProviderAccountApiError | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProviderAccountsRenameError = ProviderAccountsRenameErrors[keyof ProviderAccountsRenameErrors]
+
+export type ProviderAccountsRenameResponses = {
+  /**
+   * Renamed provider account
+   */
+  200: ProviderAccountInfo
+}
+
+export type ProviderAccountsRenameResponse = ProviderAccountsRenameResponses[keyof ProviderAccountsRenameResponses]
+
+export type ProviderAccountsAuthStateData = {
+  body?: never
+  path: {
+    accountID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider-accounts/{accountID}/auth-state"
+}
+
+export type ProviderAccountsAuthStateErrors = {
+  /**
+   * ProviderAccountApiError | InvalidRequestError
+   */
+  400: ProviderAccountApiError | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProviderAccountsAuthStateError = ProviderAccountsAuthStateErrors[keyof ProviderAccountsAuthStateErrors]
+
+export type ProviderAccountsAuthStateResponses = {
+  /**
+   * Provider account credential health
+   */
+  200: ProviderAccountAuthState
+}
+
+export type ProviderAccountsAuthStateResponse =
+  ProviderAccountsAuthStateResponses[keyof ProviderAccountsAuthStateResponses]
+
+export type ProviderAccountsOauthStartData = {
+  body?: {
+    label: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider-accounts/oauth/start"
+}
+
+export type ProviderAccountsOauthStartErrors = {
+  /**
+   * ProviderAccountApiError | InvalidRequestError
+   */
+  400: ProviderAccountApiError | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProviderAccountsOauthStartError = ProviderAccountsOauthStartErrors[keyof ProviderAccountsOauthStartErrors]
+
+export type ProviderAccountsOauthStartResponses = {
+  /**
+   * OAuth operation
+   */
+  200: ProviderAccountOAuthOperation
+}
+
+export type ProviderAccountsOauthStartResponse =
+  ProviderAccountsOauthStartResponses[keyof ProviderAccountsOauthStartResponses]
+
+export type ProviderAccountsOauthReauthenticateData = {
+  body?: {
+    expectedRevision: number
+  }
+  path: {
+    accountID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider-accounts/{accountID}/oauth/start"
+}
+
+export type ProviderAccountsOauthReauthenticateErrors = {
+  /**
+   * ProviderAccountApiError | InvalidRequestError
+   */
+  400: ProviderAccountApiError | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProviderAccountsOauthReauthenticateError =
+  ProviderAccountsOauthReauthenticateErrors[keyof ProviderAccountsOauthReauthenticateErrors]
+
+export type ProviderAccountsOauthReauthenticateResponses = {
+  /**
+   * OAuth reauthentication operation
+   */
+  200: ProviderAccountOAuthOperation
+}
+
+export type ProviderAccountsOauthReauthenticateResponse =
+  ProviderAccountsOauthReauthenticateResponses[keyof ProviderAccountsOauthReauthenticateResponses]
+
+export type ProviderAccountsOauthCompleteData = {
+  body?: {
+    operationID: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider-accounts/oauth/complete"
+}
+
+export type ProviderAccountsOauthCompleteErrors = {
+  /**
+   * ProviderAccountApiError | InvalidRequestError
+   */
+  400: ProviderAccountApiError | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProviderAccountsOauthCompleteError =
+  ProviderAccountsOauthCompleteErrors[keyof ProviderAccountsOauthCompleteErrors]
+
+export type ProviderAccountsOauthCompleteResponses = {
+  /**
+   * OAuth operation result
+   */
+  200: ProviderAccountOAuthResult
+}
+
+export type ProviderAccountsOauthCompleteResponse =
+  ProviderAccountsOauthCompleteResponses[keyof ProviderAccountsOauthCompleteResponses]
+
+export type ProviderAccountsOauthCancelData = {
+  body?: never
+  path: {
+    operationID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider-accounts/oauth/{operationID}"
+}
+
+export type ProviderAccountsOauthCancelErrors = {
+  /**
+   * ProviderAccountApiError | InvalidRequestError
+   */
+  400: ProviderAccountApiError | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProviderAccountsOauthCancelError =
+  ProviderAccountsOauthCancelErrors[keyof ProviderAccountsOauthCancelErrors]
+
+export type ProviderAccountsOauthCancelResponses = {
+  /**
+   * OAuth operation canceled
+   */
+  200: boolean
+}
+
+export type ProviderAccountsOauthCancelResponse =
+  ProviderAccountsOauthCancelResponses[keyof ProviderAccountsOauthCancelResponses]
+
+export type ProviderAccountsDefaultClearData = {
+  body?: never
+  path: {
+    providerID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider-accounts/{providerID}/default"
+}
+
+export type ProviderAccountsDefaultClearErrors = {
+  /**
+   * ProviderAccountApiError | InvalidRequestError
+   */
+  400: ProviderAccountApiError | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProviderAccountsDefaultClearError =
+  ProviderAccountsDefaultClearErrors[keyof ProviderAccountsDefaultClearErrors]
+
+export type ProviderAccountsDefaultClearResponses = {
+  /**
+   * Default provider account cleared
+   */
+  200: boolean
+}
+
+export type ProviderAccountsDefaultClearResponse =
+  ProviderAccountsDefaultClearResponses[keyof ProviderAccountsDefaultClearResponses]
+
+export type ProviderAccountsDefaultSelectData = {
+  body?: {
+    accountID: string
+  }
+  path: {
+    providerID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider-accounts/{providerID}/default"
+}
+
+export type ProviderAccountsDefaultSelectErrors = {
+  /**
+   * ProviderAccountApiError | InvalidRequestError
+   */
+  400: ProviderAccountApiError | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProviderAccountsDefaultSelectError =
+  ProviderAccountsDefaultSelectErrors[keyof ProviderAccountsDefaultSelectErrors]
+
+export type ProviderAccountsDefaultSelectResponses = {
+  /**
+   * Default provider account selected
+   */
+  200: boolean
+}
+
+export type ProviderAccountsDefaultSelectResponse =
+  ProviderAccountsDefaultSelectResponses[keyof ProviderAccountsDefaultSelectResponses]
+
+export type ProviderAccountsSessionGetData = {
+  body?: never
+  path: {
+    sessionID: string
+    providerID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/provider-accounts/{providerID}"
+}
+
+export type ProviderAccountsSessionGetErrors = {
+  /**
+   * ProviderAccountApiError | InvalidRequestError
+   */
+  400: ProviderAccountApiError | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProviderAccountsSessionGetError = ProviderAccountsSessionGetErrors[keyof ProviderAccountsSessionGetErrors]
+
+export type ProviderAccountsSessionGetResponses = {
+  /**
+   * Session provider account binding
+   */
+  200: ProviderAccountSessionBinding
+}
+
+export type ProviderAccountsSessionGetResponse =
+  ProviderAccountsSessionGetResponses[keyof ProviderAccountsSessionGetResponses]
+
+export type ProviderAccountsSessionAssignData = {
+  body?: {
+    accountID: string
+    confirmRepair?: boolean
+  }
+  path: {
+    sessionID: string
+    providerID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/provider-accounts/{providerID}"
+}
+
+export type ProviderAccountsSessionAssignErrors = {
+  /**
+   * ProviderAccountApiError | InvalidRequestError
+   */
+  400: ProviderAccountApiError | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProviderAccountsSessionAssignError =
+  ProviderAccountsSessionAssignErrors[keyof ProviderAccountsSessionAssignErrors]
+
+export type ProviderAccountsSessionAssignResponses = {
+  /**
+   * Session provider account bindings
+   */
+  200: {
+    version: 1
+    providers: {
+      [key: string]:
+        | {
+            mode: "unbound"
+            reason: "profile-required" | "missing-profile" | "legacy-migration-pending"
+          }
+        | {
+            mode: "profile"
+            profileID: string
+            authMode: string
+            source: "default" | "explicit" | "inherited" | "repair"
+          }
+        | {
+            mode: "legacy"
+            authMode: string
+            source: "explicit" | "environment" | "migration"
+            accountID?: string
+          }
+    }
+  }
+}
+
+export type ProviderAccountsSessionAssignResponse =
+  ProviderAccountsSessionAssignResponses[keyof ProviderAccountsSessionAssignResponses]
 
 export type V2HealthGetData = {
   body?: never

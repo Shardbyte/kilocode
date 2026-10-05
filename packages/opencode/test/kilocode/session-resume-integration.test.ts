@@ -2,7 +2,8 @@ import path from "node:path"
 import os from "node:os"
 import fs from "node:fs"
 import { expect } from "bun:test"
-import { Effect, Exit, Layer, Schema } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Layer, Schema } from "effect"
+import * as Stream from "effect/Stream"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -32,6 +33,9 @@ import { SessionPrompt } from "../../src/session/prompt"
 import { SessionRevert } from "../../src/session/revert"
 import { SessionRunState } from "../../src/session/run-state"
 import { Session } from "../../src/session/session"
+import { SessionBinding } from "@opencode-ai/core/kilocode/session-binding" // kilocode_change
+import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles" // kilocode_change
+import { LLMEvent, Usage } from "@opencode-ai/llm"
 import { MessageV2 } from "../../src/session/message-v2"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionStatus } from "../../src/session/status"
@@ -53,12 +57,21 @@ import { TestLLMServer } from "../lib/llm-server"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { EventTable } from "@opencode-ai/core/event/sql"
+import { EventV2 } from "@opencode-ai/core/event"
+import { SessionTable } from "@opencode-ai/core/session/sql"
+import { and, eq } from "drizzle-orm"
 
 // ── Test layer ──────────────────────────────────────────────────────────
 
 const ref = {
   providerID: ProviderV2.ID.make("test"),
   modelID: ModelV2.ID.make("test-model"),
+}
+
+const openaiRef = {
+  providerID: ProviderV2.ID.make("openai"),
+  modelID: ModelV2.ID.make("gpt-5-mini"),
 }
 
 const agent: AgentSvc.Info = {
@@ -176,11 +189,36 @@ function providerCfg(url: string) {
   }
 }
 
+function openaiCfg(url: string) {
+  return {
+    ...cfg,
+    provider: {
+      ...cfg.provider,
+      openai: {
+        ...cfg.provider.test,
+        id: "openai",
+        name: "OpenAI test",
+        npm: "@ai-sdk/openai",
+        models: {
+          "gpt-5-mini": {
+            ...cfg.provider.test.models["test-model"],
+            id: "gpt-5-mini",
+            name: "GPT-5 mini test",
+          },
+        },
+        options: { apiKey: "test-key", baseURL: url },
+      },
+    },
+  }
+}
+
 const memoryNode = LayerNode.make({ service: MemoryService.Service, layer: MemoryService.layer, deps: [] })
 const serverNode = LayerNode.make({ service: TestLLMServer, layer: TestLLMServer.layer, deps: [] })
 const root = LayerNode.group([
   SessionPrompt.node,
   Session.node,
+  ProviderAccountProfiles.node, // kilocode_change
+  SessionBinding.node, // kilocode_change
   SessionProjector.node,
   MessageV2.node,
   Snapshot.node,
@@ -232,6 +270,20 @@ const replacements = [...base, [AgentSvc.node, fastAgents]] as const
 
 const it = testEffect(LayerNode.compile(root, replacements))
 
+const fakeLLM = Layer.mock(LLM.Service)({
+  stream: () => {
+    const usage = new Usage({ inputTokens: 1, outputTokens: 2, totalTokens: 3 })
+    return Stream.make(
+      LLMEvent.textStart({ id: "compat-text" }),
+      LLMEvent.textDelta({ id: "compat-text", text: "legacy binding migrated" }),
+      LLMEvent.textEnd({ id: "compat-text" }),
+      LLMEvent.stepFinish({ index: 0, reason: "stop", usage }),
+      LLMEvent.finish({ reason: "stop", usage }),
+    )
+  },
+})
+const itOpenAI = testEffect(LayerNode.compile(root, [...base, [AgentSvc.node, fastAgents], [LLM.node, fakeLLM]]))
+
 // Same stack but with the real Agent service, so agent resolution behaves like
 // production (unknown names resolve to undefined instead of the mocked agent).
 const itAgents = testEffect(LayerNode.compile(root, base))
@@ -272,6 +324,220 @@ const boot = Effect.fn("test.boot")(function* (input?: { title?: string }) {
   const chat = yield* sessions.create(input ?? {})
   return { prompt, sessions, chat }
 })
+
+const clearBinding = Effect.fn("test.clearBinding")(function* (sessionID: Session.Info["id"]) {
+  const { db } = yield* Database.Service
+  yield* db.update(SessionTable).set({ metadata: null }).where(eq(SessionTable.id, sessionID)).run()
+  const row = yield* db
+    .select()
+    .from(EventTable)
+    .where(
+      and(
+        eq(EventTable.aggregate_id, sessionID),
+        eq(EventTable.type, EventV2.versionedType(SessionV1.Event.Created.type, 1)),
+      ),
+    )
+    .get()
+  if (!row) throw new Error("expected a pre-feature Created event")
+  const data = structuredClone(row.data)
+  const info = data.info as Record<string, unknown>
+  delete info.metadata
+  yield* db.update(EventTable).set({ data }).where(eq(EventTable.id, row.id)).run()
+})
+
+it.instance("migrates an absent compatibility binding during the first admitted OpenAI turn", () =>
+  Effect.gen(function* () {
+    const guard = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+    const auth = process.env.KILO_AUTH_CONTENT
+    delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+    process.env.KILO_AUTH_CONTENT = JSON.stringify({ openai: { type: "api", key: "test-key" } })
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        if (guard === undefined) delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+        else process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = guard
+        if (auth === undefined) delete process.env.KILO_AUTH_CONTENT
+        else process.env.KILO_AUTH_CONTENT = auth
+      }),
+    )
+    const { prompt, sessions, chat } = yield* boot()
+    yield* clearBinding(chat.id)
+    expect(yield* sessions.binding(chat.id)).toBeUndefined()
+    const binding = yield* sessions.turn(
+      chat.id,
+      sessions.ensureBinding({ sessionID: chat.id, provider: "openai" }),
+    )
+    expect(binding).toEqual({
+      mode: "legacy",
+      authMode: "api",
+      source: "migration",
+    })
+    const row = yield* (yield* Database.Service).db
+      .select()
+      .from(EventTable)
+      .where(
+        and(
+          eq(EventTable.aggregate_id, chat.id),
+          eq(EventTable.type, EventV2.versionedType(SessionV1.Event.Updated.type, 1)),
+        ),
+      )
+      .get()
+    expect(row?.data.info).toMatchObject({
+      metadata: { kilocode: { providerBindings: { providers: { openai: { mode: "legacy", source: "migration" } } } } },
+    })
+  }),
+)
+
+itOpenAI.instance("a first OpenAI prompt durably migrates a pre-feature session before LLM dispatch", () =>
+  Effect.gen(function* () {
+    const guard = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+    const auth = process.env.KILO_AUTH_CONTENT
+    delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+    process.env.KILO_AUTH_CONTENT = JSON.stringify({ openai: { type: "api", key: "test-key" } })
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        if (guard === undefined) delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+        else process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = guard
+        if (auth === undefined) delete process.env.KILO_AUTH_CONTENT
+        else process.env.KILO_AUTH_CONTENT = auth
+      }),
+    )
+    yield* useServerConfig(openaiCfg)
+    const { prompt, sessions, chat } = yield* boot()
+    yield* clearBinding(chat.id)
+    expect(yield* sessions.binding(chat.id)).toBeUndefined()
+
+    const result = yield* prompt.prompt({
+      sessionID: chat.id,
+      model: openaiRef,
+      agent: "build",
+      parts: [{ type: "text", text: "resume an older OpenAI session" }],
+    })
+
+    expect(result.parts.some((part) => part.type === "text" && part.text.includes("legacy binding migrated"))).toBe(true)
+    expect(SessionBinding.get((yield* sessions.get(chat.id)).metadata)?.providers.openai).toEqual({
+      mode: "legacy",
+      authMode: "api",
+      source: "migration",
+    })
+  }),
+)
+
+it.instance("pins the imported legacy profile, not a changed default, on an old session", () =>
+  Effect.gen(function* () {
+    const guard = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+    delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        if (guard === undefined) delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+        else process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = guard
+      }),
+    )
+    const profiles = yield* ProviderAccountProfiles.Service
+    const sessions = yield* Session.Service
+    const { chat } = yield* boot()
+    yield* clearBinding(chat.id)
+
+    process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+    const imported = yield* profiles.importLegacy({
+      remoteID: "legacy-turn-account",
+      credential: {
+        access: "access-imported-turn",
+        refresh: "refresh-imported-turn",
+        expires: 1_900_000_000_000,
+        accountID: "legacy-turn-account",
+      },
+    })
+    expect(imported.accountID).toBeDefined()
+    if (!imported.accountID) throw new Error("expected imported profile ID")
+    const profile = yield* profiles.create({
+      provider: "openai",
+      authMode: "chatgpt-oauth",
+      label: "Changed default",
+      credential: {
+        access: "access-default-change",
+        refresh: "refresh-default-change",
+        expires: 1_900_000_000_000,
+        accountID: "different-remote-account",
+      },
+    })
+    yield* profiles.selectDefault("openai", "chatgpt-oauth", profile.id)
+
+    const binding = yield* sessions.turn(
+      chat.id,
+      sessions.ensureBinding({ sessionID: chat.id, provider: "openai" }),
+    )
+    expect(binding).toEqual({
+      mode: "profile",
+      profileID: imported.accountID,
+      authMode: "chatgpt-oauth",
+      source: "migration",
+    })
+    const next = yield* profiles.create({
+      provider: "openai",
+      authMode: "chatgpt-oauth",
+      label: "Later default",
+      credential: {
+        access: "access-later-default",
+        refresh: "refresh-later-default",
+        expires: 1_900_000_000_000,
+        accountID: "third-remote-account",
+      },
+    })
+    yield* profiles.selectDefault("openai", "chatgpt-oauth", next.id)
+    expect(yield* sessions.ensureBinding({ sessionID: chat.id, provider: "openai" })).toEqual(binding)
+    expect(SessionBinding.get((yield* sessions.get(chat.id)).metadata)?.providers.openai).toEqual(binding)
+  }),
+)
+
+it.instance("a real admitted prompt holds the session binding lease through the provider response", () =>
+  Effect.gen(function* () {
+    const before = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+    process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        if (before === undefined) delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+        else process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = before
+      }),
+    )
+    const { llm } = yield* useServerConfig(providerCfg)
+    const profiles = yield* ProviderAccountProfiles.Service
+    const profile = yield* profiles.create({
+      provider: "openai",
+      authMode: "chatgpt-oauth",
+      label: "Turn lease target",
+      credential: {
+        access: "access-turn-lease",
+        refresh: "refresh-turn-lease",
+        expires: 1_900_000_000_000,
+        accountID: "remote-turn-lease",
+      },
+    })
+    yield* profiles.clearDefault("openai", "chatgpt-oauth")
+    const { prompt, sessions, chat } = yield* boot()
+    expect(SessionBinding.get(chat.metadata)?.providers.openai).toEqual({
+      mode: "unbound",
+      reason: "profile-required",
+    })
+    const gate = Promise.withResolvers<void>()
+    yield* llm.hold("turn is still running", gate.promise)
+    const fiber = yield* prompt
+      .prompt({
+        sessionID: chat.id,
+        model: ref,
+        agent: "build",
+        parts: [{ type: "text", text: "hold this turn" }],
+      })
+      .pipe(Effect.forkChild)
+    yield* llm.wait(1)
+    const denied = yield* Effect.exit(
+      sessions.assignBinding({ sessionID: chat.id, provider: "openai", profileID: profile.id }),
+    )
+    expect(denied._tag).toBe("Failure")
+    if (denied._tag === "Failure") expect(Cause.squash(denied.cause)).toBeInstanceOf(SessionBinding.TurnActiveError)
+    gate.resolve()
+    yield* Fiber.join(fiber)
+  }),
+)
 
 // ── Claude fixture helpers ─────────────────────────────────────────────
 

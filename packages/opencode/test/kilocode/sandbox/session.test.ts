@@ -9,10 +9,13 @@ import { Database } from "@opencode-ai/core/database/database"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { BackgroundJob } from "@/background/job"
+import { Auth } from "@/auth" // kilocode_change
 import { Bus } from "@/bus"
 import { Config } from "@/config/config"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
+import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles"
+import { SessionBinding } from "@opencode-ai/core/kilocode/session-binding"
 import { BackgroundProcess } from "@/kilocode/background-process"
 import { Notebook } from "@/kilocode/notebook/service"
 import * as SandboxActivation from "@/kilocode/sandbox/activation"
@@ -38,6 +41,9 @@ const it = testEffect(
       Layer.provide(AppNodeBuilder.build(BackgroundJob.node)),
       Layer.provide(AppNodeBuilder.build(Database.node)),
       Layer.provide(AppNodeBuilder.build(EventV2Bridge.node)),
+      Layer.provide(AppNodeBuilder.build(ProviderAccountProfiles.node)),
+      Layer.provide(AppNodeBuilder.build(SessionBinding.node)),
+      Layer.provide(AppNodeBuilder.build(Auth.node)), // kilocode_change
       Layer.provide(AppNodeBuilder.build(SessionV2.node, [[SessionExecution.node, SessionExecution.noopLayer]])), // kilocode_change
     ),
     AppNodeBuilder.build(BackgroundJob.node),

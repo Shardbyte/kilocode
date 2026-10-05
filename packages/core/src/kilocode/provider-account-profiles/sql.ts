@@ -64,3 +64,16 @@ export const DefaultTable = sqliteTable(
     }).onDelete("cascade"),
   ],
 )
+
+export const ImportTable = sqliteTable("kilo_provider_account_import", {
+  name: text().primaryKey(),
+  account_id: text(),
+  time_completed: integer().notNull(),
+})
+
+export const RefreshLockTable = sqliteTable("kilo_provider_account_refresh_lock", {
+  account_id: text().primaryKey(),
+  owner_pid: integer().notNull(),
+  owner_host: text().notNull(),
+  owner_token: text().notNull(),
+})

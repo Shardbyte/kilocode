@@ -133,6 +133,15 @@ export default {
       // kilocode_change end
       // kilocode_change start
       yield* tx.run(`
+        CREATE TABLE \`kilo_provider_account_import\` (
+          \`name\` text PRIMARY KEY,
+          \`account_id\` text,
+          \`time_completed\` integer NOT NULL
+        );
+      `)
+      // kilocode_change end
+      // kilocode_change start
+      yield* tx.run(`
         CREATE TABLE \`kilo_provider_account\` (
           \`id\` text PRIMARY KEY,
           \`provider\` text NOT NULL,
@@ -148,6 +157,16 @@ export default {
       // kilocode_change end
       // kilocode_change start
       yield* tx.run(`
+        CREATE TABLE \`kilo_provider_account_refresh_lock\` (
+          \`account_id\` text PRIMARY KEY,
+          \`owner_pid\` integer NOT NULL,
+          \`owner_host\` text NOT NULL,
+          \`owner_token\` text NOT NULL
+        );
+      `)
+      // kilocode_change end
+      // kilocode_change start
+      yield* tx.run(`
         CREATE TABLE \`kilo_provider_account_credential\` (
           \`account_id\` text PRIMARY KEY,
           \`value\` text NOT NULL,
@@ -155,6 +174,16 @@ export default {
           \`time_updated\` integer NOT NULL,
           CONSTRAINT \`kilo_provider_account_credential_account_fk\` FOREIGN KEY (\`account_id\`) REFERENCES \`kilo_provider_account\`(\`id\`) ON DELETE CASCADE,
           CONSTRAINT "kilo_provider_account_revision_check" CHECK("revision" >= 0)
+        );
+      `)
+      // kilocode_change end
+      // kilocode_change start
+      yield* tx.run(`
+        CREATE TABLE \`kilo_session_turn_lock\` (
+          \`session_id\` text PRIMARY KEY,
+          \`owner_pid\` integer NOT NULL,
+          \`owner_host\` text NOT NULL,
+          \`owner_token\` text NOT NULL
         );
       `)
       // kilocode_change end

@@ -150,10 +150,16 @@ async function exchangeCodeForTokens(code: string, redirectUri: string, pkce: Pk
 }
 
 // kilocode_change start
-async function refreshAccessToken(refreshToken: string, issuer = ISSUER, signal?: AbortSignal): Promise<TokenResponse> {
-  const response = await fetch(`${issuer}/oauth/token`, {
+export async function refreshAccessToken(
+  refreshToken: string,
+  issuer = ISSUER,
+  signal?: AbortSignal,
+  request: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = fetch,
+): Promise<TokenResponse> {
+  const response = await request(`${issuer}/oauth/token`, {
     method: "POST",
     signal,
+    redirect: "manual",
     headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": `kilo/${InstallationVersion}` },
     // kilocode_change end
     body: new URLSearchParams({
@@ -162,6 +168,10 @@ async function refreshAccessToken(refreshToken: string, issuer = ISSUER, signal?
       client_id: CLIENT_ID,
     }).toString(),
   })
+  // kilocode_change start - never forward Codex refresh credentials through redirects
+  if (response.status >= 300 && response.status < 400)
+    throw new Error(`Token refresh refused redirect: ${response.status}`)
+  // kilocode_change end
   if (!response.ok) {
     throw new Error(`Token refresh failed: ${response.status}`)
   }
@@ -266,15 +276,21 @@ export const renderOAuthError = (error: string) => `<!doctype html>
 </html>`
 // kilocode_change end
 
+// kilocode_change start - scope browser OAuth callback state to each profile operation
 interface PendingOAuth {
+  id: string
   pkce: PkceCodes
   state: string
-  resolve: (tokens: TokenResponse) => void
-  reject: (error: Error) => void
+  promise: Promise<{ tokens?: TokenResponse; error?: Error }>
+  resolve: (result: { tokens?: TokenResponse; error?: Error }) => void
+  timer: NodeJS.Timeout
+  submitted: boolean
+  consumed: boolean
+  settled: boolean
 }
 
 let oauthServer: ReturnType<typeof createServer> | undefined
-let pendingOAuth: PendingOAuth | undefined
+const pendingOAuth = new Map<string, PendingOAuth>()
 
 async function startOAuthServer(): Promise<{ port: number; redirectUri: string }> {
   if (oauthServer) {
@@ -292,8 +308,8 @@ async function startOAuthServer(): Promise<{ port: number; redirectUri: string }
 
       if (error) {
         const errorMsg = errorDescription || error
-        pendingOAuth?.reject(new Error(errorMsg))
-        pendingOAuth = undefined
+        const current = [...pendingOAuth.values()].find((item) => item.state === state)
+        if (current) finishOAuth(current, new Error(errorMsg))
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" })
         res.end(renderOAuthError(errorMsg))
         return
@@ -301,28 +317,25 @@ async function startOAuthServer(): Promise<{ port: number; redirectUri: string }
 
       if (!code) {
         const errorMsg = "Missing authorization code"
-        pendingOAuth?.reject(new Error(errorMsg))
-        pendingOAuth = undefined
+        const current = [...pendingOAuth.values()].find((item) => item.state === state)
+        if (current) finishOAuth(current, new Error(errorMsg))
         res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" })
         res.end(renderOAuthError(errorMsg))
         return
       }
 
-      if (!pendingOAuth || state !== pendingOAuth.state) {
+      const current = [...pendingOAuth.values()].find((item) => item.state === state)
+      if (!current || current.submitted) {
         const errorMsg = "Invalid state - potential CSRF attack"
-        pendingOAuth?.reject(new Error(errorMsg))
-        pendingOAuth = undefined
         res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" })
         res.end(renderOAuthError(errorMsg))
         return
       }
 
-      const current = pendingOAuth
-      pendingOAuth = undefined
-
+      current.submitted = true
       exchangeCodeForTokens(code, `http://localhost:${OAUTH_PORT}/auth/callback`, current.pkce)
-        .then((tokens) => current.resolve(tokens))
-        .catch((err) => current.reject(err))
+        .then((tokens) => finishOAuth(current, undefined, tokens))
+        .catch((err) => finishOAuth(current, err instanceof Error ? err : new Error(String(err))))
 
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" })
       res.end(HTML_SUCCESS) // kilocode_change - shared callback page is currently OpenCode-branded
@@ -330,8 +343,9 @@ async function startOAuthServer(): Promise<{ port: number; redirectUri: string }
     }
 
     if (url.pathname === "/cancel") {
-      pendingOAuth?.reject(new Error("Login cancelled"))
-      pendingOAuth = undefined
+      const state = url.searchParams.get("state")
+      const current = [...pendingOAuth.values()].find((item) => item.state === state)
+      if (current) finishOAuth(current, new Error("Login cancelled"))
       res.writeHead(200)
       res.end("Login cancelled")
       return
@@ -352,38 +366,85 @@ async function startOAuthServer(): Promise<{ port: number; redirectUri: string }
 }
 
 function stopOAuthServer() {
-  if (oauthServer) {
+  if (oauthServer && pendingOAuth.size === 0) {
     oauthServer.close(() => {})
     oauthServer = undefined
   }
 }
 
-function waitForOAuthCallback(pkce: PkceCodes, state: string): Promise<TokenResponse> {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(
-      () => {
-        if (pendingOAuth) {
-          pendingOAuth = undefined
-          reject(new Error("OAuth callback timeout - authorization took too long"))
-        }
-      },
-      5 * 60 * 1000,
-    ) // 5 minute timeout
-
-    pendingOAuth = {
-      pkce,
-      state,
-      resolve: (tokens) => {
-        clearTimeout(timeout)
-        resolve(tokens)
-      },
-      reject: (error) => {
-        clearTimeout(timeout)
-        reject(error)
-      },
-    }
-  })
+function finishOAuth(current: PendingOAuth, error?: Error, tokens?: TokenResponse) {
+  if (error) {
+    pendingOAuth.delete(current.id)
+    clearTimeout(current.timer)
+    current.settled = true
+    current.resolve({ error })
+  } else if (tokens && !current.settled) {
+    current.settled = true
+    current.resolve({ tokens })
+  }
+  stopOAuthServer()
 }
+
+export async function startCodexOAuth(timeout = 5 * 60 * 1000) {
+  const pkce = await generatePKCE()
+  const state = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)).buffer)
+  const id = crypto.randomUUID()
+  const server = await startOAuthServer()
+  const deferred = Promise.withResolvers<{ tokens?: TokenResponse; error?: Error }>()
+  const current: PendingOAuth = {
+    id,
+    pkce,
+    state,
+    promise: deferred.promise,
+    resolve: deferred.resolve,
+    timer: setTimeout(() => {
+      pendingOAuth.delete(current.id)
+      if (!current.settled) {
+        current.settled = true
+        current.resolve({ error: new Error("OAuth callback timeout - authorization took too long") })
+      }
+      stopOAuthServer()
+    }, timeout),
+    submitted: false,
+    consumed: false,
+    settled: false,
+  }
+  pendingOAuth.set(id, current)
+  return {
+    operationID: id,
+    url: buildAuthorizeUrl(server.redirectUri, pkce, state),
+    instructions: "Complete authorization in your browser. This window will close automatically.",
+  }
+}
+
+export async function completeCodexOAuth(operationID: string) {
+  const current = pendingOAuth.get(operationID)
+  if (!current || current.consumed) throw new Error("Codex authorization operation is missing or expired")
+  current.consumed = true
+  const result = await current.promise.finally(() => {
+    pendingOAuth.delete(current.id)
+    clearTimeout(current.timer)
+    stopOAuthServer()
+  })
+  if (result.error) throw result.error
+  if (!result.tokens) throw new Error("Codex authorization returned no credentials")
+  const tokens = result.tokens
+  return {
+    credential: {
+      access: tokens.access_token,
+      refresh: tokens.refresh_token,
+      expires: Date.now() + (tokens.expires_in ?? 3600) * 1000,
+      ...(extractAccountId(tokens) && { accountID: extractAccountId(tokens) }),
+    },
+    remoteID: extractAccountId(tokens),
+  }
+}
+
+export function cancelCodexOAuth(operationID: string) {
+  const current = pendingOAuth.get(operationID)
+  if (current) finishOAuth(current, new Error("Login cancelled"))
+}
+// kilocode_change end
 
 export async function CodexAuthPlugin(input: PluginInput, options: CodexAuthPluginOptions = {}): Promise<Hooks> {
   const issuer = options.issuer ?? ISSUER
@@ -559,30 +620,25 @@ export async function CodexAuthPlugin(input: PluginInput, options: CodexAuthPlug
           label: "ChatGPT Pro/Plus (browser)",
           type: "oauth",
           authorize: async () => {
-            const { redirectUri } = await startOAuthServer()
-            const pkce = await generatePKCE()
-            const state = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)).buffer)
-            const authUrl = buildAuthorizeUrl(redirectUri, pkce, state)
-
-            const callbackPromise = waitForOAuthCallback(pkce, state)
+            // kilocode_change start
+            const auth = await startCodexOAuth()
 
             return {
-              url: authUrl,
-              instructions: "Complete authorization in your browser. This window will close automatically.",
+              url: auth.url,
+              instructions: auth.instructions,
               method: "auto" as const,
               callback: async () => {
-                const tokens = await callbackPromise
-                stopOAuthServer()
-                const accountId = extractAccountId(tokens)
+                const result = await completeCodexOAuth(auth.operationID)
                 return {
                   type: "success" as const,
-                  refresh: tokens.refresh_token,
-                  access: tokens.access_token,
-                  expires: Date.now() + (tokens.expires_in ?? 3600) * 1000,
-                  accountId,
+                  refresh: result.credential.refresh,
+                  access: result.credential.access,
+                  expires: result.credential.expires,
+                  accountId: result.credential.accountID,
                 }
               },
             }
+            // kilocode_change end
           },
         },
         {
