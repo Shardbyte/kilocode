@@ -217,7 +217,7 @@ describe("working-tree PR suggestions", () => {
         expect(await fs.readFile(path.join(directory, ".git", "index"))).toEqual(index)
         expect(await git("rev-parse", "HEAD")).toBe(head)
         expect(await fs.readFile(path.join(directory, "other.txt"), "utf8")).toBe("staged unrelated\n")
-        expect(await fs.readdir(directory)).toEqual(entries)
+        expect((await fs.readdir(directory)).toSorted()).toEqual(entries.toSorted())
       } finally {
         writing.mockRestore()
         flushing.mockRestore()
@@ -243,7 +243,7 @@ describe("working-tree PR suggestions", () => {
       expect(await fs.readFile(file, "utf8")).toBe(before.replace("old", "new"))
       expect((await fs.stat(file)).ino).not.toBe(stat.ino)
       expect((await fs.stat(file)).mode).toBe(stat.mode)
-      expect(await fs.readdir(directory)).toEqual(entries)
+      expect((await fs.readdir(directory)).toSorted()).toEqual(entries.toSorted())
     } finally {
       writing.mockRestore()
     }
@@ -279,7 +279,7 @@ describe("working-tree PR suggestions", () => {
       expect(await fs.readFile(file, "utf8")).toBe(
         "first\nold\nthird\nfourth\nfifth\nlast\n" + (change === "content" ? "concurrent local edit\n" : ""),
       )
-      expect(await fs.readdir(directory)).toEqual(entries)
+      expect((await fs.readdir(directory)).toSorted()).toEqual(entries.toSorted())
     } finally {
       flushing.mockRestore()
     }

@@ -1317,7 +1317,8 @@ describe("resolveLocalDiffTarget + revertFile", () => {
       await fs.writeFile(path.join(dir, "seed.txt"), "main\n")
       runSync(dir, ["commit", "-am", "move trunk to main"])
       runSync(dir, ["push", "-u", "origin", "main"])
-      runSync(remote, ["symbolic-ref", "HEAD", "refs/heads/main"])
+      // Select the known bare fixture explicitly without relaxing safe.bareRepository.
+      runSync(root, ["--git-dir", remote, "symbolic-ref", "HEAD", "refs/heads/main"])
       runSync(dir, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/master"])
       runSync(dir, ["checkout", "-b", "feature"])
       await fs.writeFile(path.join(dir, "feature.txt"), "one line\n")
