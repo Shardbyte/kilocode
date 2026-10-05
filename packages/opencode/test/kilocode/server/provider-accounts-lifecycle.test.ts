@@ -2,6 +2,7 @@ import { NodeHttpServer } from "@effect/platform-node"
 import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles"
+import * as AccountUsage from "@/kilocode/provider/account-usage"
 import { expect, test } from "bun:test"
 import { Effect, Layer } from "effect"
 import { HttpClient, HttpClientRequest, HttpRouter } from "effect/unstable/http"
@@ -40,7 +41,7 @@ const passWorkspace = Layer.succeed(
   ),
 )
 const session = Layer.mock(Session.Service)({})
-const db = LayerNode.compile(LayerNode.group([ProviderAccountProfiles.node, Database.node]), [
+const db = LayerNode.compile(LayerNode.group([ProviderAccountProfiles.node, AccountUsage.node, Database.node]), [
   [Database.node, Database.layerFromPath(TEST_DB).pipe(Layer.fresh)],
 ])
 

@@ -75,7 +75,7 @@ const discover = Effect.fn("ProviderUsage.Codex.discover")(function* (
 export function create(integrations: Integration.Interface) {
   let state: { connection: string; identity: string } | undefined
   return Effect.fn("ProviderUsage.Codex.prepare")(function* (ctx: AdapterContext) {
-    // Until profile-authoritative usage exists, never attribute legacy Codex usage to a profile.
+    // Anonymous provider usage has no profile context; account usage is retrieved through the explicit account API.
     if (ProviderAccountProfiles.enabled()) {
       state = undefined
       ctx.prune("codex-chatgpt", [])

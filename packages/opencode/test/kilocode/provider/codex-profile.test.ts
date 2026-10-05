@@ -158,7 +158,7 @@ describe("profile-bound Codex fetch", () => {
     const profiles = {
       withRefresh: (_id: string, work: Effect.Effect<unknown, unknown>) => work,
       credential: () => Effect.succeed({ value: secret, revision: 4 }),
-      get: () => Effect.succeed({ remoteID: "account-a" }),
+      get: () => Effect.succeed({ provider: "openai", authMode: "chatgpt-oauth", remoteID: "account-a" }),
       dispatch: (_id: string, transport: (auth: typeof secret, revision: number) => Promise<Response>) => {
         const response = transport(secret, 4)
         return Effect.succeed({ response })
@@ -198,7 +198,7 @@ describe("profile-bound Codex fetch", () => {
     const profiles = {
       withRefresh: (_id: string, work: Effect.Effect<unknown, unknown>) => work,
       credential: () => Effect.succeed({ value: secret, revision: 2 }),
-      get: () => Effect.succeed({ remoteID: "account-a" }),
+      get: () => Effect.succeed({ provider: "openai", authMode: "chatgpt-oauth", remoteID: "account-a" }),
       dispatch: (_id: string, transport: (auth: typeof secret, revision: number) => Promise<Response>) =>
         Effect.succeed({ response: transport(secret, 2) }),
       reauthenticate: () => Effect.succeed(3),

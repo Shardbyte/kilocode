@@ -1,6 +1,7 @@
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { NonNegativeInt } from "@opencode-ai/core/schema"
 import { SessionBinding } from "@opencode-ai/core/kilocode/session-binding"
+import { ProviderUsage } from "@opencode-ai/core/kilocode/provider-usage"
 import { SessionID } from "@/session/schema"
 import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
@@ -38,6 +39,15 @@ export const AuthState = Schema.Struct({
   state: Schema.Literals(["ready", "expired", "missing"]),
   revision: Schema.optional(NonNegativeInt),
 }).annotate({ identifier: "ProviderAccountAuthState" })
+
+export const AccountUsage = Schema.Struct({
+  accountID: Schema.String,
+  providerID: Schema.Literal("openai"),
+  authMode: Schema.Literal("chatgpt-oauth"),
+  retrievedAt: Schema.String,
+  generation: NonNegativeInt,
+  snapshot: ProviderUsage.Schema.UsageSnapshot,
+}).annotate({ identifier: "ProviderAccountUsage" })
 
 export const Operation = Schema.Struct({
   operationID: Schema.String,
@@ -134,6 +144,31 @@ export const ProviderAccountsApi = HttpApi.make("provider-accounts")
             identifier: "providerAccounts.authState",
             summary: "Get provider account credential health",
             description: "Report safe credential health derived from its stored expiration without refreshing it.",
+          }),
+        ),
+        HttpApiEndpoint.get("usage", `${root}/:accountID/usage`, {
+          params: { accountID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(AccountUsage, "Usage for one local provider account"),
+          error: apiError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "providerAccounts.usage.get",
+            summary: "Get provider account usage",
+            description: "Get account-attributed quota using only the requested profile's authoritative credentials.",
+          }),
+        ),
+        HttpApiEndpoint.post("refreshUsage", `${root}/:accountID/usage/refresh`, {
+          params: { accountID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(AccountUsage, "Refreshed usage for one local provider account"),
+          error: apiError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "providerAccounts.usage.refresh",
+            summary: "Refresh provider account usage",
+            description:
+              "Refresh one account's quota without selecting another account or changing authentication health.",
           }),
         ),
         HttpApiEndpoint.post("createOAuth", `${root}/oauth/start`, {

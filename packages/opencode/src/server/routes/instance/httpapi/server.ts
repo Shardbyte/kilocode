@@ -35,6 +35,7 @@ import { Notebook } from "@/kilocode/notebook/service"
 import { AgentManager } from "@/kilocode/agent-manager/service"
 import { KiloViewers } from "@/kilocode/presence/service"
 import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles"
+import * as AccountUsage from "@/kilocode/provider/account-usage"
 // kilocode_change end
 import { SessionCompaction } from "@/session/compaction"
 import { Instruction } from "@/session/instruction"
@@ -241,6 +242,7 @@ const app = LayerNode.group([
   Database.node,
   Credential.node, // kilocode_change
   ProviderAccountProfiles.node, // kilocode_change
+  AccountUsage.node, // kilocode_change
   Auth.node,
   Account.node,
   Config.node,

@@ -1,5 +1,6 @@
 // kilocode_change - guarded provider profile lifecycle HTTP API
 import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles"
+import * as AccountUsage from "@/kilocode/provider/account-usage"
 import { makeOAuthFlow, OAuthOperationUnavailableError, type OAuthAdapter } from "@/kilocode/provider-account-oauth"
 import { Session } from "@/session/session"
 import type { SessionID } from "@/session/schema"
@@ -82,6 +83,7 @@ export function makeProviderAccountsHandlers(adapter: OAuthAdapter<OAuthResult> 
   return HttpApiBuilder.group(InstanceHttpApi, "provider-accounts", (handlers) =>
     Effect.gen(function* () {
       const profiles = yield* ProviderAccountProfiles.Service
+      const usage = yield* AccountUsage.Service
       const session = yield* Session.Service
 
       const guard = Effect.fn("ProviderAccountsHttpApi.guard")(function* () {
@@ -333,6 +335,8 @@ export function makeProviderAccountsHandlers(adapter: OAuthAdapter<OAuthResult> 
         .handle("list", (ctx) => handle(list(ctx)))
         .handle("get", (ctx) => handle(get(ctx)))
         .handle("authState", (ctx) => handle(authState(ctx)))
+        .handle("usage", (ctx) => handle(guard().pipe(Effect.andThen(usage.get(ctx.params.accountID)))))
+        .handle("refreshUsage", (ctx) => handle(guard().pipe(Effect.andThen(usage.get(ctx.params.accountID, true)))))
         .handle("createOAuth", (ctx) => handle(createOAuth(ctx)))
         .handle("reauthOAuth", (ctx) => handle(reauthOAuth(ctx)))
         .handle("completeOAuth", (ctx) => handle(completeOAuth(ctx)))

@@ -37,6 +37,8 @@
   <!-- packages/opencode/src/plugin/xai.ts -->
 - <https://blog.kilo.ai/p/kilo-gateway-now-supports-byok-20-providers>
   <!-- packages/kilo-vscode/webview-ui/src/components/settings/ProviderConnectDialog.tsx -->
+- <https://chatgpt.com/codex/settings/usage>
+  <!-- packages/opencode/src/kilocode/provider/account-usage.ts -->
 - <https://chatgpt.com/explore/plus>
   <!-- packages/opencode/src/provider/error.ts -->
 - <https://cli.github.com/>

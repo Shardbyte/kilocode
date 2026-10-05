@@ -55,12 +55,12 @@ export async function refresh(
     profiles.withRefresh(
       id,
       Effect.gen(function* () {
+        const info = yield* profiles.get(id)
+        if (!info || info.provider !== "openai" || info.authMode !== "chatgpt-oauth")
+          throw new Error("Provider account is unavailable")
         const current = yield* profiles.credential(id)
         if (!current) throw new Error("Provider account is unavailable")
         if (!expired(current.value)) return current
-        const info = yield* profiles.get(id)
-        if (!info) throw new Error("Provider account is unavailable")
-
         const controller = new AbortController()
         const timer = setTimeout(
           () => controller.abort(new DOMException("The operation timed out.", "TimeoutError")),

@@ -4841,6 +4841,15 @@ export type ProviderAccountAuthState = {
   revision?: number
 }
 
+export type ProviderAccountUsage = {
+  accountID: string
+  providerID: "openai"
+  authMode: "chatgpt-oauth"
+  retrievedAt: string
+  generation: number
+  snapshot: ProviderUsageSnapshot
+}
+
 export type ProviderAccountOAuthOperation = {
   operationID: string
   url: string
@@ -4860,7 +4869,7 @@ export type ProviderAccountSessionBinding =
       mode: "profile"
       profileID: string
       authMode: string
-      source: "default" | "explicit" | "inherited" | "repair"
+      source: "default" | "explicit" | "inherited" | "repair" | "migration"
     }
   | {
       mode: "legacy"
@@ -19694,6 +19703,77 @@ export type ProviderAccountsAuthStateResponses = {
 export type ProviderAccountsAuthStateResponse =
   ProviderAccountsAuthStateResponses[keyof ProviderAccountsAuthStateResponses]
 
+export type ProviderAccountsUsageGetData = {
+  body?: never
+  path: {
+    accountID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider-accounts/{accountID}/usage"
+}
+
+export type ProviderAccountsUsageGetErrors = {
+  /**
+   * ProviderAccountApiError | InvalidRequestError
+   */
+  400: ProviderAccountApiError | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProviderAccountsUsageGetError = ProviderAccountsUsageGetErrors[keyof ProviderAccountsUsageGetErrors]
+
+export type ProviderAccountsUsageGetResponses = {
+  /**
+   * Usage for one local provider account
+   */
+  200: ProviderAccountUsage
+}
+
+export type ProviderAccountsUsageGetResponse =
+  ProviderAccountsUsageGetResponses[keyof ProviderAccountsUsageGetResponses]
+
+export type ProviderAccountsUsageRefreshData = {
+  body?: never
+  path: {
+    accountID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider-accounts/{accountID}/usage/refresh"
+}
+
+export type ProviderAccountsUsageRefreshErrors = {
+  /**
+   * ProviderAccountApiError | InvalidRequestError
+   */
+  400: ProviderAccountApiError | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProviderAccountsUsageRefreshError =
+  ProviderAccountsUsageRefreshErrors[keyof ProviderAccountsUsageRefreshErrors]
+
+export type ProviderAccountsUsageRefreshResponses = {
+  /**
+   * Refreshed usage for one local provider account
+   */
+  200: ProviderAccountUsage
+}
+
+export type ProviderAccountsUsageRefreshResponse =
+  ProviderAccountsUsageRefreshResponses[keyof ProviderAccountsUsageRefreshResponses]
+
 export type ProviderAccountsOauthStartData = {
   body?: {
     label: string
@@ -19995,7 +20075,7 @@ export type ProviderAccountsSessionAssignResponses = {
             mode: "profile"
             profileID: string
             authMode: string
-            source: "default" | "explicit" | "inherited" | "repair"
+            source: "default" | "explicit" | "inherited" | "repair" | "migration"
           }
         | {
             mode: "legacy"

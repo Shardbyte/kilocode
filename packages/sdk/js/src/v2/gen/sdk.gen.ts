@@ -370,6 +370,10 @@ import type {
   ProviderAccountsSessionAssignResponses,
   ProviderAccountsSessionGetErrors,
   ProviderAccountsSessionGetResponses,
+  ProviderAccountsUsageGetErrors,
+  ProviderAccountsUsageGetResponses,
+  ProviderAccountsUsageRefreshErrors,
+  ProviderAccountsUsageRefreshResponses,
   ProviderAuthErrors,
   ProviderAuthResponses,
   ProviderListErrors,
@@ -9960,6 +9964,80 @@ export class Memory extends HeyApiClient {
   }
 }
 
+export class Usage extends HeyApiClient {
+  /**
+   * Get provider account usage
+   *
+   * Get account-attributed quota using only the requested profile's authoritative credentials.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      accountID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "accountID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      ProviderAccountsUsageGetResponses,
+      ProviderAccountsUsageGetErrors,
+      ThrowOnError
+    >({
+      url: "/provider-accounts/{accountID}/usage",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Refresh provider account usage
+   *
+   * Refresh one account's quota without selecting another account or changing authentication health.
+   */
+  public refresh<ThrowOnError extends boolean = false>(
+    parameters: {
+      accountID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "accountID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ProviderAccountsUsageRefreshResponses,
+      ProviderAccountsUsageRefreshErrors,
+      ThrowOnError
+    >({
+      url: "/provider-accounts/{accountID}/usage/refresh",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Oauth2 extends HeyApiClient {
   /**
    * Start adding a provider account
@@ -10473,6 +10551,11 @@ export class ProviderAccounts extends HeyApiClient {
       ...options,
       ...params,
     })
+  }
+
+  private _usage?: Usage
+  get usage(): Usage {
+    return (this._usage ??= new Usage({ client: this.client }))
   }
 
   private _oauth?: Oauth2

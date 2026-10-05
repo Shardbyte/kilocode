@@ -21,6 +21,9 @@ test("provider account OpenAPI preserves nullability and finite nonnegative inte
   const auth = spec.components?.schemas?.ProviderAccountAuthState as
     | { properties?: Record<string, unknown>; required?: string[] }
     | undefined
+  const usage = spec.components?.schemas?.ProviderAccountUsage as
+    | { properties?: Record<string, unknown>; required?: string[] }
+    | undefined
   const reauth = spec.paths?.["/provider-accounts/{accountID}/oauth/start"]?.post as
     | { requestBody?: { content?: { "application/json"?: { schema?: { properties?: Record<string, unknown> } } } } }
     | undefined
@@ -44,6 +47,15 @@ test("provider account OpenAPI preserves nullability and finite nonnegative inte
   integer(info?.properties?.timeUpdated)
   integer(auth?.properties?.revision)
   integer(reauth?.requestBody?.content?.["application/json"]?.schema?.properties?.expectedRevision)
+  expect(usage?.required).toEqual(
+    expect.arrayContaining(["accountID", "providerID", "authMode", "retrievedAt", "generation", "snapshot"]),
+  )
+  expect(usage?.properties?.accountID).toEqual({ type: "string" })
+  expect(usage?.properties?.authMode).toEqual({ type: "string", enum: ["chatgpt-oauth"] })
+  integer(usage?.properties?.generation)
+  expect(spec.paths?.["/provider-accounts/{accountID}/usage"]?.get).toBeDefined()
+  expect(spec.paths?.["/provider-accounts/{accountID}/usage/refresh"]?.post).toBeDefined()
+  expect(JSON.stringify(usage?.properties?.snapshot)).toContain("UsageSnapshot")
 })
 
 afterEach(async () => {
