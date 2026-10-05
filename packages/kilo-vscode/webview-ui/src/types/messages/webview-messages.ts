@@ -12,6 +12,7 @@ import type { WorkStyle, WorkStyleState } from "../../../../src/shared/work-styl
 import type { RefreshProviderUsageMessage, RequestProviderUsageMessage } from "./provider-usage"
 import type { AnacondaDesktopWebviewMessage } from "../../../../src/shared/anaconda-desktop-messages"
 import type { RequestMigrationDataMessage, StartMigrationMessage } from "./migration"
+import type { ProviderAccountsRequest } from "./provider-accounts"
 import type { MemoryShowMessage, MemoryOperationMessage, RequestMemoryMessage } from "./memory"
 import type { RequestSessionBoardMessage, ResetSessionBoardMessage } from "./board"
 import type { Activity } from "../../utils/session-activity"
@@ -1922,6 +1923,7 @@ export type WebviewMessage =
   | AgentManagerTerminalResizeRequest
   | RequestImageModelsMessage
   | RequestSpeechToTextModelsMessage
+  | ProviderAccountsRequest
 
 // ============================================
 // VS Code API type

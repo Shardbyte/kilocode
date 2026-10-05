@@ -24,6 +24,12 @@ export const ProfileCommand = lazy({
   load: async () => (await import("@/kilocode/cli/cmd/profile")).ProfileCommand,
 })
 
+export const AccountsCommand = lazy({
+  command: "accounts",
+  describe: "manage provider account profiles",
+  load: async () => (await import("@/kilocode/cli/cmd/accounts")).AccountsCommand,
+})
+
 export const RemoteCommand = lazy({
   command: "remote",
   describe: "enable remote connection for real-time session relay",

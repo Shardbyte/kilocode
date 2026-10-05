@@ -33,6 +33,14 @@ const testAllow: Record<string, { count: number; reason: string }> = {
   "kilocode/config-resilience.test.ts": { count: 4, reason: "existing runtime integration test" },
   "kilocode/config-validation.test.ts": { count: 2, reason: "existing runtime integration test" },
   "kilocode/cli-shutdown.test.ts": { count: 1, reason: "mocked runtime boundary for shutdown unit tests" },
+  "kilocode/cli/accounts.test.ts": {
+    count: 2,
+    reason:
+      "account CLI integration tests invoke the real command parser and Server.listen, which resolves services " +
+      "through the production application runtime. Synthetic profile setup and turn admission must share that " +
+      "runtime's in-memory SQLite database with the HTTP server; an independent scoped runtime creates a different " +
+      "database and cannot exercise the actual CLI/backend boundary.",
+  },
   "kilocode/plan-followup.test.ts": { count: 3, reason: "existing runtime integration test" },
   "kilocode/session-compaction-chunks.test.ts": {
     count: 2,

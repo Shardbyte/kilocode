@@ -5,6 +5,7 @@ import { TRANSIENT as MEMORY_TRANSIENT } from "@kilocode/kilo-memory/schema"
 import type {
   KiloClient,
   ProviderUsage,
+  ProviderAccountUsage,
   Session,
   SessionStatus,
   Event,
@@ -53,6 +54,14 @@ import {
 import { GitOps } from "./agent-manager/GitOps"
 import { GitStatsPoller, type LocalStats } from "./agent-manager/GitStatsPoller"
 import { removeMcp } from "./kilo-provider/remove-config-item"
+import {
+  accountDTOs,
+  authorizationURL,
+  bindingDTO,
+  reauthRevision,
+  safeAccountError,
+  usageDTO,
+} from "./provider-accounts"
 import { MarketplaceService } from "./services/marketplace"
 import type { RemoteStatusService } from "./services/RemoteStatusService"
 import { resolveProjectDirectory } from "./project-directory"
@@ -1149,7 +1158,11 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
     this.initializeConnection()
   }
 
-  private acknowledge(message: Record<string, unknown>): boolean {
+  private async handleImmediateMessage(message: Record<string, unknown>): Promise<boolean> {
+    if (message.type === "providerAccounts") {
+      await this.handleProviderAccounts(message)
+      return true
+    }
     if (message.type !== "acknowledgeSession") return false
     if (typeof message.sessionID === "string" && typeof message.eventID === "string") {
       this.connectionService.notifySessionAcknowledged(message.sessionID, message.eventID)
@@ -1179,7 +1192,7 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
     this.telemetryStateDisposable?.dispose()
     this.telemetryStateDisposable = watchTelemetryState((msg) => this.postMessage(msg))
     this.webviewMessageDisposable = webview.onDidReceiveMessage(async (message) => {
-      if (this.acknowledge(message)) return
+      if (await this.handleImmediateMessage(message)) return
       const intercepted = await interceptMessage(message, {
         workspaceDir: (sid) => this.getWorkspaceDirectory(sid ?? this.currentSession?.id),
         post: (m) => this.postMessage(m),
@@ -2866,6 +2879,127 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
     })
     this.providersRefresh = done
     await done
+  }
+
+  private async handleProviderAccounts(msg: Record<string, unknown>): Promise<void> {
+    const client = this.client
+    const action = typeof msg.action === "string" ? msg.action : "list"
+    const id = typeof msg.id === "string" ? msg.id : ""
+    const sid = typeof msg.sessionID === "string" ? msg.sessionID : undefined
+    const dir = this.getWorkspaceDirectory(sid)
+    const failed = (error: unknown) =>
+      this.postMessage({
+        type: "providerAccountsLoaded",
+        accounts: [],
+        available: false,
+        sessionID: sid,
+        bindingStatus: sid ? "error" : "no-session",
+        action,
+        error: safeAccountError(error),
+      })
+    if (!client) {
+      failed({ error: "StorageFailed" })
+      return
+    }
+    if (sid && this.routeSessionDirectory(sid) === null) {
+      failed({ error: "Conflict" })
+      return
+    }
+    const authorize = async (op: { operationID: string; url: string }) => {
+      const cancel = () =>
+        client.providerAccounts.oauth
+          .cancel({ operationID: op.operationID, directory: dir })
+          .catch(() => ({ error: { error: "OAuthFailed" } }))
+      const url = authorizationURL(op.url)
+      if (!url) {
+        await cancel()
+        return { error: "InvalidRequest" }
+      }
+      const opened = await Promise.resolve(vscode.env.openExternal(vscode.Uri.parse(url))).catch(() => false)
+      const text = opened
+        ? "Finish ChatGPT authorization in your browser, then continue. The account is saved only after backend confirmation."
+        : "The browser could not be opened. Cancel and retry after enabling browser access."
+      const done = await vscode.window.showInformationMessage(text, ...(opened ? ["Continue", "Cancel"] : ["Cancel"]))
+      if (done !== "Continue") return (await cancel()).error
+      const result = await client.providerAccounts.oauth
+        .complete({ operationID: op.operationID, directory: dir })
+        .catch(() => ({ error: { error: "OAuthFailed" } }))
+      if (result.error) await cancel()
+      return result.error
+    }
+    const send = async (error?: unknown, usage?: ProviderAccountUsage) => {
+      const list = await client.providerAccounts.list({ provider: "openai", directory: dir })
+      const binding = sid
+        ? await client.providerAccounts.session.get({ sessionID: sid, providerID: "openai", directory: dir })
+        : undefined
+      const disabled = (list.error as { error?: string } | undefined)?.error === "Disabled"
+      this.postMessage({
+        type: "providerAccountsLoaded",
+        accounts: accountDTOs(list.data?.accounts),
+        available: !disabled && !list.error,
+        sessionID: sid,
+        binding: bindingDTO(binding ? binding.data : undefined),
+        bindingStatus: !sid ? "no-session" : binding?.error ? "error" : "ready",
+        usage: usageDTO(usage),
+        action,
+        error: safeAccountError(error ?? list.error ?? binding?.error),
+      })
+    }
+    try {
+      let error: unknown
+      let usage: ProviderAccountUsage | undefined
+      const revision = reauthRevision(msg.revision)
+      if (action === "list" || action === "binding") {
+        await send()
+        return
+      }
+      if (action === "assign" && id && sid) {
+        const result = await client.providerAccounts.session.assign({
+          sessionID: sid,
+          providerID: "openai",
+          accountID: id,
+          confirmRepair: msg.confirmRepair === true,
+          directory: dir,
+        })
+        error = result.error
+      } else if (action === "add" && typeof msg.label === "string") {
+        const start = await client.providerAccounts.oauth.start({ label: msg.label, directory: dir })
+        error = start.error
+        if (!error && start.data) {
+          error = await authorize(start.data)
+        }
+      } else if (action === "reauth" && id && revision != null) {
+        const start = await client.providerAccounts.oauth.reauthenticate({
+          accountID: id,
+          expectedRevision: revision,
+          directory: dir,
+        })
+        error = start.error
+        if (!error && start.data) {
+          error = await authorize(start.data)
+        }
+      } else if (action === "reauth" && id) {
+        error = { error: "InvalidRequest" }
+      } else if (id && action === "remove")
+        error = (await client.providerAccounts.remove({ accountID: id, directory: dir })).error
+      else if (id && action === "rename" && typeof msg.label === "string")
+        error = (await client.providerAccounts.rename({ accountID: id, label: msg.label, directory: dir })).error
+      else if (id && action === "default")
+        error = (await client.providerAccounts.default.select({ providerID: "openai", accountID: id, directory: dir }))
+          .error
+      else if (id && action === "usage") {
+        const result = await client.providerAccounts.usage.get({ accountID: id, directory: dir })
+        error = result.error
+        usage = result.data
+      } else if (id && action === "refreshUsage") {
+        const result = await client.providerAccounts.usage.refresh({ accountID: id, directory: dir })
+        error = result.error
+        usage = result.data
+      }
+      await send(error, usage)
+    } catch (error) {
+      failed(error)
+    }
   }
 
   private async handleProviderAction(msg: Record<string, unknown>): Promise<void> {

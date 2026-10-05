@@ -42,6 +42,11 @@ function mapError(err: unknown) {
   if (err instanceof ProviderAccountProfiles.CredentialStorageError)
     return failure("StorageFailed", "Provider account could not be stored")
   const tag = typeof err === "object" && err !== null && "_tag" in err ? String(err._tag) : ""
+  if (tag === "SessionBinding.TurnActiveError")
+    return failure(
+      "Conflict",
+      "A turn is running for this session; wait for it to finish before assigning or repairing its provider account",
+    )
   if (tag.includes("NotFound")) return failure("NotFound", "Session was not found")
   if (tag.includes("Conflict")) return failure("Conflict", "Session provider binding cannot be changed")
   if (tag.includes("AccountUnavailable")) return failure("NotFound", "Session provider account is unavailable")

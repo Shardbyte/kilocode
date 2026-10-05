@@ -43,6 +43,7 @@ import { Switch } from "@kilocode/kilo-ui/switch"
 import { TextField } from "@kilocode/kilo-ui/text-field"
 import SettingsRow from "./SettingsRow"
 import { ProjectBranchDialog } from "../../../agent-manager/ProjectBranchDialog"
+import ProviderAccountsTab from "./ProviderAccountsTab"
 
 export interface SettingsProps {
   tab?: string
@@ -362,6 +363,10 @@ const Settings: Component<SettingsProps> = (props) => {
             <Icon name="providers" />
             <span class="label">{language.t("settings.providers.title")}</span>
           </Tabs.Trigger>
+          <Tabs.Trigger value="providerAccounts" aria-label="Provider accounts">
+            <Icon name="account" />
+            <span class="label">Provider accounts</span>
+          </Tabs.Trigger>
           <Tabs.Trigger value="agentBehaviour" aria-label={language.t("settings.agentBehaviour.title")}>
             <Icon name="brain" />
             <span class="label">{language.t("settings.agentBehaviour.title")}</span>
@@ -438,6 +443,10 @@ const Settings: Component<SettingsProps> = (props) => {
         <Tabs.Content value="providers">
           <h3>{language.t("settings.providers.title")}</h3>
           <ProvidersTab />
+        </Tabs.Content>
+        <Tabs.Content value="providerAccounts">
+          <h3>Provider accounts</h3>
+          <ProviderAccountsTab />
         </Tabs.Content>
         <Tabs.Content value="agentBehaviour">
           <h3>{language.t("settings.agentBehaviour.title")}</h3>

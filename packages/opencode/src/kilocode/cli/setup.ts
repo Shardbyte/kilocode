@@ -7,6 +7,7 @@ import { createHelpCommand } from "@/kilocode/help-command"
 import { hasLazyCommandSelection } from "@/kilocode/cli/lazy-commands"
 import {
   CloudCommand,
+  AccountsCommand,
   ConfigCLICommand,
   DaemonCommand,
   DevAliasCommand,
@@ -47,6 +48,7 @@ export namespace KiloCli {
       .command(CloudCommand)
       .command(RollCallCommand)
       .command(ProfileCommand)
+      .command(AccountsCommand)
       .command(RemoteCommand)
       .command(DaemonCommand)
       .command(ConfigCLICommand)

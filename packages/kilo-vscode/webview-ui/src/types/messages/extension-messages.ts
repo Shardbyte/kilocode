@@ -90,6 +90,7 @@ import type {
 } from "./migration"
 import type { MemoryEventMessage, MemoryLoadedMessage, MemoryOperationResultMessage } from "./memory"
 import type { SessionBoardLoadedMessage } from "./board"
+import type { ProviderAccountsLoadedMessage } from "./provider-accounts"
 
 // ============================================
 // Messages FROM extension TO webview
@@ -1899,3 +1900,4 @@ export type ExtensionMessage =
   | MemoryOperationResultMessage
   | BackgroundJobsLoadedMessage
   | SessionBoardLoadedMessage
+  | ProviderAccountsLoadedMessage

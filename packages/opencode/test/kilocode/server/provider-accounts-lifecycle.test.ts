@@ -2,8 +2,9 @@ import { NodeHttpServer } from "@effect/platform-node"
 import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles"
+import { SessionBinding } from "@opencode-ai/core/kilocode/session-binding"
 import * as AccountUsage from "@/kilocode/provider/account-usage"
-import { expect, test } from "bun:test"
+import { expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { HttpClient, HttpClientRequest, HttpRouter } from "effect/unstable/http"
 import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi"
@@ -40,7 +41,9 @@ const passWorkspace = Layer.succeed(
     effect.pipe(Effect.provideService(WorkspaceRouteContext, WorkspaceRouteContext.of({ directory: process.cwd() }))),
   ),
 )
-const session = Layer.mock(Session.Service)({})
+const session = Layer.mock(Session.Service)({
+  assignBinding: () => Effect.fail(new SessionBinding.TurnActiveError({ message: "synthetic-access-private" })),
+})
 const db = LayerNode.compile(LayerNode.group([ProviderAccountProfiles.node, AccountUsage.node, Database.node]), [
   [Database.node, Database.layerFromPath(TEST_DB).pipe(Layer.fresh)],
 ])
@@ -125,6 +128,12 @@ it.live("provider account routes use the real profile store and return credentia
         expect(b.account.revision).toBe(0)
         expect(JSON.stringify([a, b])).not.toContain("synthetic-access")
         expect(JSON.stringify([a, b])).not.toContain("synthetic-refresh")
+
+        const busy = yield* json("PUT", "/session/ses_running/provider-accounts/openai", { accountID: a.account.id })
+        expect(busy.status).toBe(400)
+        const conflict = yield* busy.json
+        expect(conflict).toMatchObject({ error: "Conflict", message: expect.stringContaining("A turn is running") })
+        expect(JSON.stringify(conflict)).not.toContain("synthetic-access")
 
         const listed = yield* HttpClient.get("/provider-accounts?provider=openai")
         const list = (yield* listed.json) as { accounts: Array<{ id: string; label: string; isDefault: boolean }> }
