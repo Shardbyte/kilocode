@@ -51,6 +51,81 @@ const testAllow: Record<string, { count: number; reason: string }> = {
     reason:
       "Prompt enhancement uses the production application runtime; real source-session bindings and profile setup must share that runtime to verify auxiliary authority without creating utility sessions.",
   },
+  "kilocode/session-authority-qualification.test.ts": {
+    count: 21,
+    reason:
+      "The real HTTP session listener and JSON ExportCommand resolve services through the production application " +
+      "runtime. Synthetic account setup, live/durable event observation, and persisted message/error inspection " +
+      "must share its store to qualify the actual session-processing and export boundary; a separate scoped " +
+      "test runtime would inspect a different database. The service-level admission tests still use scoped layers.",
+  },
+  "kilocode/qualification/client-protocol.test.ts": {
+    count: 3,
+    reason:
+      "Old-client payload qualification drives the actual HTTP listener and utility handlers, which resolve " +
+      "accounts through the production application runtime. Synthetic default setup must share that runtime " +
+      "to prove profiles-enabled rejection versus profiles-disabled legacy protocol behavior.",
+  },
+  "kilocode/qualification/caller-matrix.test.ts": {
+    count: 9,
+    reason:
+      "Actual enhancement and commit generation use the production application runtime. Profile setup, source " +
+      "session state and mutations must share its database to verify prepared authority and real SDK dispatch.",
+  },
+  "kilocode/qualification/standalone-callers.test.ts": {
+    count: 2,
+    reason:
+      "The commit-message Promise boundary resolves the production application runtime. Its synthetic profile " +
+      "setup and deletion must use that same store to observe actual standalone SDK authorization and fail-closed admission.",
+  },
+  "kilocode/qualification/failure-matrix.test.ts": {
+    count: 17,
+    reason:
+      "Real HTTP session processing and utility generation use the production application runtime. Profile setup, " +
+      "live events and durable failure inspection must share its database to observe public failure sinks and account identity.",
+  },
+  "kilocode/qualification/session-admission-restart.ts": {
+    count: 4,
+    reason:
+      "The standalone restart fixture seeds profiles through the real HTTP server's production application runtime " +
+      "and shared disk SQLite store, then observes persisted binding authority from a distinct backend process.",
+  },
+  "kilocode/qualification/lifecycle-process-worker.ts": {
+    count: 10,
+    reason:
+      "Two live HTTP backend processes share disk SQLite and the production application runtime. Seeding and " +
+      "held-turn mutations must use the same store to observe competing assignment and confirmed-repair route admission.",
+  },
+  "kilocode/qualification/lifecycle-sdk-worker.ts": {
+    count: 9,
+    reason:
+      "The standalone lifecycle subprocess acquires production Provider SDK models against real session authority " +
+      "and exercises credential revision/deletion barriers in the same runtime that normal and utility calls use.",
+  },
+  "kilocode/qualification/roll-call.test.ts": {
+    count: 7,
+    reason:
+      "The actual roll-call CLI handler executes against the production application runtime. Explicit account setup, " +
+      "default selection and deletion must use its profile store to verify real SDK dispatch and rejected authority.",
+  },
+  "kilocode/qualification/memory-caller.test.ts": {
+    count: 4,
+    reason:
+      "MemoryTurn.close's real Promise authority and model ports use the production application runtime. The test " +
+      "must create its bound source transcript in that same instance/database to observe SDK dispatch and persisted memory.",
+  },
+  "kilocode/qualification/standalone-failures.test.ts": {
+    count: 9,
+    reason:
+      "Actual enhancement and commit-message Promise entry points use the production application runtime. Profile " +
+      "setup, expiry and cleanup must share its store to observe real SDK authorization and public failure behavior.",
+  },
+  "kilocode/qualification/caller-failures.fixture.ts": {
+    count: 15,
+    reason:
+      "The fresh diagnostic-capture subprocess invokes actual Agent and roll-call entry points against the production " +
+      "application runtime. Profile setup/refresh/cleanup must share its store to qualify SDK failures and real stdout/stderr sinks.",
+  },
   "kilocode/plan-followup.test.ts": { count: 3, reason: "existing runtime integration test" },
   "kilocode/session-compaction-chunks.test.ts": {
     count: 2,

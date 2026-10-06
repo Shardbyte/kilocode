@@ -54,4 +54,19 @@ describe("utility account selection", () => {
     expect(pick).not.toHaveBeenCalled()
     expect(error).toHaveBeenCalledWith(expect.stringContaining("No eligible account authority"))
   })
+
+  it("does not auto-select a default profile when multiple authorities are allowed", async () => {
+    pick.mockImplementation(async (items) => items[1])
+    const context = await selectUtilityAccount(
+      [
+        { id: "default-id", label: "Default", isDefault: true, authState: "ready" },
+        { id: "other-id", label: "Other", isDefault: false, authState: "ready" },
+      ],
+      ["account"],
+      { showQuickPick: pick as never, showErrorMessage: error as never },
+    )
+
+    expect(pick).toHaveBeenCalledTimes(1)
+    expect(context).toEqual({ kind: "account", providerID: "openai", authMode: "chatgpt-oauth", accountID: "other-id" })
+  })
 })

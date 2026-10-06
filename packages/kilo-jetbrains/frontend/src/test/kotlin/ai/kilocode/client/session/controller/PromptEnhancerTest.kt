@@ -18,6 +18,7 @@ class PromptEnhancerTest : SessionControllerTestBase() {
             requiresAccountContext = true,
             allowedContextKinds = listOf("legacy", "account", "session"),
             accounts = listOf(EnhancePromptAccountDto("acct_work", "Work")),
+            backendGeneration = 7,
         )
 
         val choices = enhanceChoices(opts)
@@ -27,6 +28,10 @@ class PromptEnhancerTest : SessionControllerTestBase() {
         assertNull(choices[0].accountID)
         assertEquals("acct_work", choices[1].accountID)
         assertFalse(choices[1].legacy)
+        assertEquals(
+            EnhancePromptRequestDto("help", "openai", "gpt-5-mini", accountID = "acct_work", backendGeneration = 7),
+            enhanceRequest("help", opts, null, choices[1]),
+        )
         assertTrue(enhanceChoices(opts.copy(allowedContextKinds = listOf("session"))).isEmpty())
         assertNull(chooseEnhanceChoice(opts) { -1 })
         assertNull(enhanceRequest("help", opts, null))
@@ -34,13 +39,15 @@ class PromptEnhancerTest : SessionControllerTestBase() {
 
     fun `test standalone non OpenAI model uses prepared model without account context`() {
         val controller = controller()
-        rpc.enhanceOptions = EnhancePromptOptionsDto("anthropic", "claude-sonnet", false, false, emptyList(), emptyList())
+        rpc.enhanceOptions = EnhancePromptOptionsDto(
+            "anthropic", "claude-sonnet", false, false, emptyList(), emptyList(), backendGeneration = 9,
+        )
 
         edt { controller.enhancePrompt("explain this") {} }
         flush()
 
         assertEquals(
-            listOf("/test" to EnhancePromptRequestDto("explain this", "anthropic", "claude-sonnet")),
+            listOf("/test" to EnhancePromptRequestDto("explain this", "anthropic", "claude-sonnet", backendGeneration = 9)),
             rpc.enhancements,
         )
     }
@@ -69,6 +76,19 @@ class PromptEnhancerTest : SessionControllerTestBase() {
             listOf("/test" to EnhancePromptRequestDto("make a plan", "openai", "gpt-5-mini")),
             rpc.enhancements,
         )
+    }
+
+    fun `test unavailable prepare endpoint does not fall back to generation`() {
+        val controller = controller()
+        rpc.enhancePrepareThrows = IllegalStateException("HTTP 404")
+        var result: Result<String>? = null
+
+        edt { controller.enhancePrompt("make a plan") { result = it } }
+        flush()
+
+        assertEquals(listOf("/test"), rpc.enhancePreparations)
+        assertTrue(rpc.enhancements.isEmpty())
+        assertEquals("HTTP 404", result!!.exceptionOrNull()!!.message)
     }
 
     fun `test enhance prompt completes on EDT with workspace directory`() {

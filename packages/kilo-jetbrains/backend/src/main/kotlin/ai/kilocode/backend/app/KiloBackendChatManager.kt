@@ -89,14 +89,20 @@ class KiloBackendChatManager(
     private val _events = MutableSharedFlow<ChatEventDto>(extraBufferCapacity = 128)
     val events: SharedFlow<ChatEventDto> = _events.asSharedFlow()
 
+    private data class Connection(val http: OkHttpClient, val url: String, val generation: Long)
+
     private var client: OkHttpClient? = null
     private var base: String? = null
+    private var generation = 0L
     private var watcher: Job? = null
     private var normalizer = KiloCliDataParser.ChatEventNormalizer()
 
+    @Synchronized
     fun start(http: OkHttpClient, port: Int, sse: SharedFlow<SseEvent>) {
+        val target = "http://127.0.0.1:$port"
+        if (client !== http || base != target) generation++
         client = http
-        base = "http://127.0.0.1:$port"
+        base = target
         if (watcher?.isActive == true) return
         watcher = cs.launch {
             sse.collect { event ->
@@ -139,7 +145,9 @@ class KiloBackendChatManager(
         log.info("Chat manager started")
     }
 
+    @Synchronized
     fun stop() {
+        generation++
         watcher?.cancel()
         watcher = null
         client = null
@@ -151,26 +159,31 @@ class KiloBackendChatManager(
     // ------ prompt ------
 
     suspend fun prepareEnhancePrompt(dir: String): EnhancePromptOptionsDto {
-        val http = requireClient()
-        val url = requireBase()
+        val connection = connection()
         val query = "directory=${encode(dir)}"
-        val raw = post(http, "$url/enhance-prompt/prepare?$query", "{}")
+        val raw = post(connection.http, "${connection.url}/enhance-prompt/prepare?$query", "{}")
         val root = kotlinx.serialization.json.Json.parseToJsonElement(raw).jsonObject
         val kinds = root["allowedContextKinds"]?.jsonArray?.map { it.jsonPrimitive.content }.orEmpty()
         val accounts = if ("account" in kinds) {
-            val result = get(http, "$url/provider-accounts?provider=openai&authMode=chatgpt-oauth&$query")
+            val result = get(connection.http, "${connection.url}/provider-accounts?provider=openai&authMode=chatgpt-oauth&$query")
             result
         } else null
-        return KiloCliDataParser.parseEnhancePromptOptions(raw, accounts)
+        return KiloCliDataParser.parseEnhancePromptOptions(raw, accounts).copy(backendGeneration = connection.generation)
     }
 
     suspend fun enhancePrompt(dir: String, request: EnhancePromptRequestDto): String {
-        val http = requireClient()
-        val url = requireBase()
+        val connection = connection()
+        if (request.backendGeneration != connection.generation) {
+            throw RuntimeException("Enhance prompt unavailable because the backend reconnected. Prepare the enhancement again.")
+        }
         val body = KiloCliDataParser.buildEnhancePromptJson(request)
-        val raw = post(http, "$url/enhance-prompt?directory=${encode(dir)}", body)
+        val raw = post(connection.http, "${connection.url}/enhance-prompt?directory=${encode(dir)}", body)
         return KiloCliDataParser.parseEnhancedPrompt(raw)
     }
+
+    @Synchronized
+    private fun connection(): Connection =
+        Connection(requireClient(), requireBase(), generation)
 
     private suspend fun post(http: OkHttpClient, target: String, body: String): String {
         val request = Request.Builder().url(target).post(body.toRequestBody(JSON_TYPE)).build()

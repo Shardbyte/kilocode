@@ -1,0 +1,45 @@
+{
+  "command": "bun test ./test/kilocode/provider-profile-history-qualification.test.ts",
+  "finalSHA": "2547dd8f908a8dfcd16d0d3396b46933720f52db",
+  "historicalSources": [
+    { "milestone": "pre-profile", "sha": "76bcfd40be616a72f4697b3041565f322245b462", "sourceDate": "2026-10-02T12:24:46-07:00" },
+    { "milestone": "M1", "sha": "7c264af09b44d6af218119de464effca1428b215", "sourceDate": "2026-10-04T19:56:47Z" },
+    { "milestone": "M2-M6", "sha": "72732985186da5a19c8febcb5bef3543541128b8", "sourceDate": "2026-10-05T04:41:59Z" },
+    { "milestone": "M7", "sha": "b20e2688f036703317cf87af35c6a32a2f3d9cd0", "sourceDate": "2026-10-05T15:56:24Z" },
+    { "milestone": "M8-M9", "sha": "34ceb6e9e2b35d3d5a7e2a5fa1f07be5c7529b12", "sourceDate": "2026-10-05T17:07:43Z" },
+    { "milestone": "M9.5", "sha": "f2ad10f5c6c67052940bf19f14ceacf28add6b9d", "sourceDate": "2026-10-05T19:59:24Z" }
+  ],
+  "runtime": "Bun 1.4.2, Linux x64",
+  "sourceMethod": "git archive into test-owned temporary directories; archived core packages symlink current packages/core/node_modules",
+  "tempDirectory": "/tmp/opencode-core-test-* (removed after test)",
+  "childProcesses": {
+    "archivedWriters": 5,
+    "finalReaders": 5,
+    "finalWriters": 1,
+    "archivedReaders": 5,
+    "preProfileLegacyReader": 1,
+    "archiveAndExtract": 14,
+    "total": 31
+  },
+  "assertions": 75,
+  "result": {
+    "oldToFinal": {
+      "M1": "PASS: profile, rotated credential revision/value, default; no binding predates M1",
+      "M2-M6": "PASS",
+      "M7": "PASS",
+      "M8-M9": "PASS",
+      "M9.5": "PASS"
+    },
+    "finalToOld": {
+      "M1": "PASS: profile, rotated credential revision/value, default; reader does not support binding",
+      "M2-M6": "PASS",
+      "M7": "PASS",
+      "M8-M9": "PASS",
+      "M9.5": "PASS"
+    },
+    "preProfileDowngrade": "PASS empirical hazard assertion: old Credential.Service reads synthetic stale auth.json token",
+    "credentialsPrinted": false,
+    "network": "not used",
+    "releasedBinaries": "not run"
+  }
+}

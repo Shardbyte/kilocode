@@ -429,7 +429,9 @@ const live: Layer.Layer<
               small: (input.small ?? false).toString(),
               agent: input.agent.name,
               mode: input.agent.mode,
-              error,
+              // kilocode_change start
+              error: profileID !== undefined ? "The selected provider account request failed." : error,
+              // kilocode_change end
             }),
           )
         },

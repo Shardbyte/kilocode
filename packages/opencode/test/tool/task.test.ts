@@ -80,6 +80,31 @@ const secret = (tag: string): ProviderAccountProfiles.Secret => ({
   accountID: `remote-${tag}`,
 })
 
+const restoration = () => {
+  const before = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+  return () =>
+    Effect.sync(() => {
+      if (before === undefined) delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+      else process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = before
+    })
+}
+
+it.effect("restores unset and explicit provider-profile flags after profile-enabled work", () =>
+  Effect.gen(function* () {
+    const cleanup = restoration()
+    yield* Effect.addFinalizer(cleanup)
+    for (const before of [undefined, "0", "1"]) {
+      if (before === undefined) delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+      else process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = before
+      const restore = restoration()
+      process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+      yield* restore()
+      if (before === undefined) expect(process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES).toBeUndefined()
+      else expect(process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES).toBe(before)
+    }
+  }),
+)
+
 const legacyFixture = Effect.fn("TaskToolTest.legacyFixture")(function* (sessionID: SessionID) {
   const db = yield* Database.Service
   yield* db.db.update(SessionTable).set({ metadata: null }).where(eq(SessionTable.id, sessionID)).run()
@@ -146,14 +171,9 @@ it.instance(
   "session creation snapshots the default into the durable Created event and forks inherit that snapshot",
   () =>
     Effect.gen(function* () {
-      const before = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+      const restore = restoration()
       process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => {
-          if (before === undefined) delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
-          else process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = before
-        }),
-      )
+      yield* Effect.addFinalizer(restore)
       const profiles = yield* ProviderAccountProfiles.Service
       const first = yield* profiles.create({
         provider: "openai",
@@ -239,13 +259,9 @@ it.instance(
 // kilocode_change start - session provider-binding lifecycle regression coverage
 it.instance("session binding migration persists once and cannot assign during an admitted turn", () =>
   Effect.gen(function* () {
-    const before = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+    const restore = restoration()
     delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        if (before !== undefined) process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = before
-      }),
-    )
+    yield* Effect.addFinalizer(restore)
     const profiles = yield* ProviderAccountProfiles.Service
     const target = yield* profiles.create({
       provider: "openai",

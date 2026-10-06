@@ -161,13 +161,19 @@ const layer = Layer.effect(
       let attempt = KiloSessionProcessor.attempt() // kilocode_change
 
       // kilocode_change start
-      const parse = (e: unknown) =>
-        KiloSessionProcessor.parseError(e, {
+      const binding = yield* Effect.exit(session.binding(input.sessionID))
+      const profileBound =
+        input.model.providerID === "openai" &&
+        (binding._tag === "Failure" || binding.value?.providers.openai?.mode === "profile")
+      const parse = (e: unknown, retry = false) => {
+        const error = KiloSessionProcessor.parseError(e, {
           providerID: input.model.providerID,
           aborted,
         })
+        return profileBound ? KiloSessionProcessor.profileError(error, retry) : error
+      }
       const retryParse = (e: unknown) => {
-        const error = parse(e)
+        const error = parse(e, true)
         if (e instanceof KiloSessionProcessor.IncompleteResponseError) return KiloSessionProcessor.blockRetry(error)
         if (attempt.text || attempt.reasoning || attempt.tool) return KiloSessionProcessor.blockRetry(error)
         return error
@@ -900,8 +906,10 @@ const layer = Layer.effect(
         yield* Effect.logError("process", {
           "session.id": input.sessionID,
           messageID: input.assistantMessage.id,
-          error: errorMessage(e),
-          stack: e instanceof Error ? e.stack : undefined,
+          // kilocode_change start
+          error: profileBound ? "The selected provider account request failed." : errorMessage(e),
+          stack: profileBound ? undefined : e instanceof Error ? e.stack : undefined,
+          // kilocode_change end
         })
         const error = parse(e)
         // kilocode_change start
@@ -1022,6 +1030,7 @@ const layer = Layer.effect(
                     abort: ac.signal,
                     set: status.set,
                     used: retries.provider,
+                    profileBound, // kilocode_change
                   }),
                   set: (info) => {
                     if (info.attempt > 0) retries.provider += 1

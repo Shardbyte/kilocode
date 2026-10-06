@@ -1,0 +1,9 @@
+preload = ["./test/kilocode/qualification/otlp-before-preload.ts"]
+
+[test]
+preload = [
+  "./test/kilocode/qualification/otlp-before-preload.ts",
+  "@opentui/solid/preload",
+  "./test/preload.ts",
+  "./test/kilocode/qualification/otlp-after-preload.ts",
+]

@@ -16,6 +16,7 @@ data class EnhancePromptOptionsDto(
     val requiresAccountContext: Boolean,
     val allowedContextKinds: List<String>,
     val accounts: List<EnhancePromptAccountDto>,
+    val backendGeneration: Long? = null,
 )
 
 @Serializable
@@ -26,4 +27,5 @@ data class EnhancePromptRequestDto(
     val sourceSessionID: String? = null,
     val accountID: String? = null,
     val legacy: Boolean = false,
+    val backendGeneration: Long? = null,
 )

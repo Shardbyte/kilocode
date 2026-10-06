@@ -115,6 +115,7 @@ class FakeSessionRpcApi : KiloSessionRpcApi {
     val enhancePreparations = mutableListOf<String>()
     var enhanceOptions = EnhancePromptOptionsDto("openai", "gpt-5-mini", true, true, listOf("legacy", "account", "session"), listOf())
     var enhancePrepareGate: CompletableDeferred<Unit>? = null
+    var enhancePrepareThrows: Exception? = null
     val enhancements = mutableListOf<Pair<String, EnhancePromptRequestDto>>()
     var enhanced = "Enhanced prompt"
     var enhanceGate: CompletableDeferred<Unit>? = null
@@ -285,6 +286,7 @@ class FakeSessionRpcApi : KiloSessionRpcApi {
         assertNotEdt("prepareEnhancePrompt")
         enhancePreparations.add(directory)
         enhancePrepareGate?.await()
+        enhancePrepareThrows?.let { throw it }
         return enhanceOptions
     }
 

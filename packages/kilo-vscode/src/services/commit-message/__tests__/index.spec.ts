@@ -10,6 +10,7 @@ vi.mock("vscode", () => {
     },
     window: {
       showErrorMessage: vi.fn(),
+      showQuickPick: vi.fn(),
       withProgress: vi.fn(),
     },
     workspace: {
@@ -18,7 +19,9 @@ vi.mock("vscode", () => {
           uri: { fsPath: "/test/workspace" },
         },
       ],
+      getConfiguration: vi.fn(() => ({ get: () => undefined })),
     },
+    env: { language: "en" },
     extensions: {
       getExtension: vi.fn(),
     },
@@ -251,7 +254,7 @@ describe("commit-message service", () => {
     it("uses the matching repository when SourceControl arg is provided", async () => {
       const mainInputBox = { value: "" }
       const worktreeInputBox = { value: "" }
-      vi.mocked(vscode.extensions.getExtension).mockReturnValue({
+      ;(vscode.extensions.getExtension as Mock).mockReturnValue({
         isActive: true,
         activate: vi.fn().mockResolvedValue(undefined),
         exports: {
@@ -263,8 +266,7 @@ describe("commit-message service", () => {
           }),
         },
       } as any)
-
-      vi.mocked(vscode.window.withProgress).mockImplementation(async (_options, task) => {
+      ;(vscode.window.withProgress as Mock).mockImplementation(async (_options, task) => {
         await task({} as any, { onCancellationRequested: vi.fn() } as any)
       })
 
@@ -279,7 +281,7 @@ describe("commit-message service", () => {
 
     it("does not generate for a SourceControl repo outside the repository list", async () => {
       const mainInputBox = { value: "" }
-      vi.mocked(vscode.extensions.getExtension).mockReturnValue({
+      ;(vscode.extensions.getExtension as Mock).mockReturnValue({
         isActive: true,
         activate: vi.fn().mockResolvedValue(undefined),
         exports: {
@@ -288,8 +290,7 @@ describe("commit-message service", () => {
           }),
         },
       } as any)
-
-      vi.mocked(vscode.window.withProgress).mockImplementation(async (_options, task) => {
+      ;(vscode.window.withProgress as Mock).mockImplementation(async (_options, task) => {
         await task({} as any, { onCancellationRequested: vi.fn() } as any)
       })
 
@@ -298,6 +299,54 @@ describe("commit-message service", () => {
 
       expect(mainInputBox.value).toBe("")
       expect(mockConnectionService.getClientAsync).not.toHaveBeenCalled()
+    })
+
+    it("does not fall back to generate when an older backend has no prepare endpoint", async () => {
+      const inputBox = { value: "" }
+      ;(vscode.extensions.getExtension as Mock).mockReturnValue({
+        isActive: true,
+        activate: vi.fn().mockResolvedValue(undefined),
+        exports: { getAPI: () => ({ repositories: [{ inputBox, rootUri: { fsPath: "/old-backend" } }] }) },
+      } as any)
+      mockClient.commitMessage.prepare.mockRejectedValue(new Error("HTTP 404"))
+
+      await commandCallback()
+
+      expect(mockClient.commitMessage.generate).not.toHaveBeenCalled()
+      expect(vscode.window.withProgress).not.toHaveBeenCalled()
+      expect(inputBox.value).toBe("")
+    })
+
+    it("does not execute a picked account context after the backend reconnects", async () => {
+      const inputBox = { value: "" }
+      ;(vscode.extensions.getExtension as Mock).mockReturnValue({
+        isActive: true,
+        activate: vi.fn().mockResolvedValue(undefined),
+        exports: { getAPI: () => ({ repositories: [{ inputBox, rootUri: { fsPath: "/reconnect" } }] }) },
+      } as any)
+      mockClient.commitMessage.prepare.mockResolvedValue({
+        data: {
+          model: { providerID: "openai", modelID: "gpt-5-mini" },
+          profilesEnabled: true,
+          requiresAccountContext: true,
+          allowedContextKinds: ["account"],
+        },
+      })
+      mockClient.providerAccounts.list.mockResolvedValue({
+        data: { accounts: [{ id: "acct-1", label: "Default", isDefault: true, authState: "ready" }] },
+      })
+      ;(vscode.window.showQuickPick as Mock).mockResolvedValue({
+        label: "Default",
+        value: { kind: "account", providerID: "openai", authMode: "chatgpt-oauth", accountID: "acct-1" },
+      } as any)
+      ;(mockConnectionService.getClient as Mock).mockReturnValue({} as any)
+
+      await commandCallback()
+
+      expect(vscode.window.showQuickPick).toHaveBeenCalledTimes(1)
+      expect(mockClient.commitMessage.generate).not.toHaveBeenCalled()
+      expect(vscode.window.withProgress).not.toHaveBeenCalled()
+      expect(inputBox.value).toBe("")
     })
   })
 })

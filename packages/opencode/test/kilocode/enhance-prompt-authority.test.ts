@@ -39,6 +39,75 @@ const binding = (profileID: string) =>
   })
 
 describe("enhance prompt authority", () => {
+  test("does not rerun mutable model defaults after preparation", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const replacement = ProviderTest.model({ ...model, id: ModelV2.ID.make("gpt-changed-default") })
+    const refs: Array<{ providerID: string; modelID: string } | undefined> = []
+    const select = spyOn(EnhancePromptRuntime, "model").mockImplementation(async (ref) => {
+      refs.push(ref)
+      return { model: refs.length === 1 || ref?.modelID === model.id ? model : replacement }
+    })
+    const language = spyOn(EnhancePromptRuntime, "language").mockResolvedValue({} as never)
+    const generate = spyOn(EnhancePromptRuntime, "generate").mockResolvedValue({ text: "rewritten" } as never)
+    try {
+      await provideInstance({
+        directory: tmp.path,
+        fn: async () => {
+          const prepared = await prepareEnhancePrompt()
+          expect(
+            await enhancePrompt("intentional draft", {
+              model: prepared.model,
+              accountContext: { kind: "legacy", providerID: "openai" },
+            }),
+          ).toBe("rewritten")
+          expect(refs).toEqual([undefined, prepared.model])
+          expect(language).toHaveBeenCalledTimes(1)
+          expect(language).toHaveBeenCalledWith(model, undefined)
+          expect(generate).toHaveBeenCalledTimes(1)
+        },
+      })
+    } finally {
+      select.mockRestore()
+      language.mockRestore()
+      generate.mockRestore()
+    }
+  })
+
+  test("rejects the same prepared model after removal without replacement or authority dispatch", async () => {
+    const refs: Array<{ providerID: string; modelID: string } | undefined> = []
+    const select = spyOn(EnhancePromptRuntime, "model").mockImplementation(async (ref) => {
+      refs.push(ref)
+      if (refs.length === 1) return { model }
+      throw new Error("SECRET_REMOVED_ENHANCEMENT_MODEL")
+    })
+    const authority = spyOn(EnhancePromptRuntime, "authority")
+    const language = spyOn(EnhancePromptRuntime, "language")
+    const generate = spyOn(EnhancePromptRuntime, "generate")
+    try {
+      const prepared = await prepareEnhancePrompt()
+      expect(prepared.model).toEqual({ providerID: model.providerID, modelID: model.id })
+      await expect(
+        enhancePrompt("intentional draft text", {
+          model: prepared.model,
+          accountContext: { kind: "account", providerID: "openai", authMode: "chatgpt-oauth", accountID: "profile-a" },
+        }),
+      ).rejects.toMatchObject({
+        name: "UtilityAccountError",
+        code: "model-unavailable",
+        message: "The selected utility model is unavailable; prepare this generation again",
+      })
+      expect(refs).toEqual([undefined, prepared.model])
+      expect(authority).not.toHaveBeenCalled()
+      expect(language).not.toHaveBeenCalled()
+      expect(generate).not.toHaveBeenCalled()
+    } finally {
+      select.mockRestore()
+      authority.mockRestore()
+      language.mockRestore()
+      generate.mockRestore()
+    }
+  })
+
   test("preserves existing-session authority, explicit standalone choices and OAuth transport constraints", async () => {
     process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
     process.env.OPENAI_API_KEY = "POISON_ENV_KEY"

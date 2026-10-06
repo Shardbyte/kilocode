@@ -180,6 +180,7 @@ class MockCliServer : AutoCloseable {
     @Volatile var enhanced = """{"text":"Enhanced prompt"}"""
     @Volatile var enhancePrepared = """{"model":{"providerID":"openai","modelID":"gpt-5-mini"},"profilesEnabled":true,"requiresAccountContext":true,"allowedContextKinds":["legacy","account","session"]}"""
     @Volatile var providerAccounts = """{"accounts":[{"id":"acct_1","provider":"openai","authMode":"chatgpt-oauth","label":"Work"}]}"""
+    @Volatile var enhancePrepareStatus = 200
     @Volatile var enhanceStatus = 200
     @Volatile var lastEnhancePath: String? = null
     @Volatile var lastEnhanceBody: String? = null
@@ -587,7 +588,7 @@ class MockCliServer : AutoCloseable {
                     lastEnhanceBody = body
                     respond(output, enhanceStatus, enhanced)
                 }
-                bare == "/enhance-prompt/prepare" && method == "POST" -> respond(output, 200, enhancePrepared)
+                bare == "/enhance-prompt/prepare" && method == "POST" -> respond(output, enhancePrepareStatus, enhancePrepared)
                 bare == "/provider-accounts" && method == "GET" -> respond(output, 200, providerAccounts)
                 else -> respond(output, 404, """{"error":"Not found"}""")
             }

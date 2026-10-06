@@ -169,6 +169,7 @@ const AgentCreateCommand = effectCmd({
               interactive: !isFullyNonInteractive,
             }).catch((error) => {
               spinner.stop(error.message, 1)
+              if (isFullyNonInteractive) process.exitCode = 1
               throw new UI.CancelledError()
             })
           : undefined

@@ -602,26 +602,32 @@ const layer = Layer.effect(
           ),
         } satisfies Parameters<typeof generateObject>[0]
 
+        // kilocode_change start - rejected SDK promises must not escape as raw provider defects
         if (isOpenaiOauth) {
-          return yield* Effect.promise(async () => {
-            const result = streamObject({
-              ...params,
-              providerOptions: ProviderTransform.providerOptions(resolved, {
-                instructions: system.join("\n"),
-                store: false,
-              }),
-              onError: () => {},
-            })
-            for await (const part of result.fullStream) {
-              if (part.type === "error") throw part.error
-            }
-            return result.object
-          }).pipe(Effect.mapError(() => new UtilityAccount.Failure("account-unavailable")))
+          return yield* Effect.tryPromise({
+            try: async () => {
+              const result = streamObject({
+                ...params,
+                providerOptions: ProviderTransform.providerOptions(resolved, {
+                  instructions: system.join("\n"),
+                  store: false,
+                }),
+                onError: () => {},
+              })
+              for await (const part of result.fullStream) {
+                if (part.type === "error") throw part.error
+              }
+              return result.object
+            },
+            catch: () => new UtilityAccount.Failure("account-unavailable"),
+          })
         }
 
-        return yield* Effect.promise(() => generateObject(params).then((r) => r.object)).pipe(
-          Effect.mapError(() => new UtilityAccount.Failure("account-unavailable")),
-        )
+        return yield* Effect.tryPromise({
+          try: () => generateObject(params).then((r) => r.object),
+          catch: () => new UtilityAccount.Failure("account-unavailable"),
+        })
+        // kilocode_change end
       }),
     })
   }),

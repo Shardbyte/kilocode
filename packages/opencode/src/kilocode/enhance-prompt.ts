@@ -7,7 +7,7 @@ import { Effect } from "effect"
 import * as Log from "@opencode-ai/core/util/log"
 import { opencodeSessionHeaders } from "@/kilocode/provider/opencode-session-headers"
 import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles"
-import type { UtilityAccount as UtilityContext } from "@/kilocode/provider/utility-account"
+import { UtilityAccount as UtilityContext } from "@/kilocode/provider/utility-account"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 
@@ -97,7 +97,10 @@ export async function enhancePrompt(
   const language = await EnhancePromptRuntime.language(
     model,
     authority.mode === "profile" ? authority.profileID : undefined,
-  )
+  ).catch((err: unknown) => {
+    if (authority.mode === "profile") throw new UtilityContext.Failure("account-unavailable")
+    throw err
+  })
 
   const oauth = authority.mode === "profile" && model.api.npm === "@ai-sdk/openai"
   const opts = mergeDeep(ProviderTransform.smallOptions(model), model.options)
@@ -112,6 +115,9 @@ export async function enhancePrompt(
     // per call still satisfies the opencode API's "stable per-conversation ID" requirement.
     headers: opencodeSessionHeaders({ providerID: model.providerID, sessionID: authority.id }),
     messages: [{ role: "user" as const, content: `Draft prompt to enhance, not answer:\n\n${text}` }],
+  }).catch((err: unknown) => {
+    if (authority.mode === "profile") throw new UtilityContext.Failure("account-unavailable")
+    throw err
   })
 
   log.info("enhanced", { length: result.text.length })

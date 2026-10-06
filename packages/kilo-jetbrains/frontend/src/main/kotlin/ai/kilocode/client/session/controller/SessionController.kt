@@ -104,9 +104,16 @@ internal fun enhanceRequest(
     choice: EnhanceChoice? = null,
 ): EnhancePromptRequestDto? {
     if (sourceSessionID != null) {
-        return EnhancePromptRequestDto(text, opts.providerID, opts.modelID, sourceSessionID = sourceSessionID)
+        return EnhancePromptRequestDto(
+            text,
+            opts.providerID,
+            opts.modelID,
+            sourceSessionID = sourceSessionID,
+            backendGeneration = opts.backendGeneration,
+        )
     }
-    if (!opts.requiresAccountContext) return EnhancePromptRequestDto(text, opts.providerID, opts.modelID)
+    if (!opts.requiresAccountContext)
+        return EnhancePromptRequestDto(text, opts.providerID, opts.modelID, backendGeneration = opts.backendGeneration)
     if (choice == null) return null
     return EnhancePromptRequestDto(
         text,
@@ -114,6 +121,7 @@ internal fun enhanceRequest(
         opts.modelID,
         accountID = choice.accountID,
         legacy = choice.legacy,
+        backendGeneration = opts.backendGeneration,
     )
 }
 
@@ -320,7 +328,7 @@ class SessionController(
                 } else {
                     val choices = enhanceChoices(opts)
                     if (choices.isEmpty()) {
-                        EnhancePromptRequestDto(text, opts.providerID, opts.modelID)
+                        EnhancePromptRequestDto(text, opts.providerID, opts.modelID, backendGeneration = opts.backendGeneration)
                     } else {
                         val choice = withContext(Dispatchers.Main) {
                             chooseEnhanceChoice(opts) { labels ->

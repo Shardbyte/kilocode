@@ -47,6 +47,37 @@ export namespace KiloSessionProcessor {
     "The model hit its output limit while reasoning and produced no actionable output. Try disabling reasoning or increasing the output limit."
   export const PROVIDER_FINISH_ERROR_MESSAGE =
     "The provider ended the response with an error before returning details. Start a new message to retry; Kilo will compact the oversized conversation first if needed."
+  export const PROFILE_OFFLINE_MESSAGE = "Provider account connection failed; waiting for network reconnection."
+
+  export function profileError(error: ReturnType<typeof MessageV2.fromError>, retry = false) {
+    if (MessageV2.ContextOverflowError.isInstance(error))
+      return new MessageV2.ContextOverflowError({
+        message: "The selected provider account request exceeded the model context limit.",
+      }).toObject()
+    const data = MessageV2.APIError.isInstance(error) ? error.data : undefined
+    const headers = data?.responseHeaders
+      ? Object.fromEntries(
+          Object.entries(data.responseHeaders).filter(([key, value]) => {
+            if (key === "retry-after-ms") return /^\d+(?:\.\d+)?$/.test(value) && Number.isFinite(Number(value))
+            if (key !== "retry-after") return false
+            if (/^\d+(?:\.\d+)?$/.test(value)) return Number.isFinite(Number(value))
+            return (
+              /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(
+                value,
+              ) && Number.isFinite(Date.parse(value))
+            )
+          }),
+        )
+      : undefined
+    const retryable = SessionRetry.retryable(error) !== undefined
+    return new MessageV2.APIError({
+      message: "The selected provider account request failed.",
+      // The retry policy otherwise overrides a terminal classification for any 5xx status.
+      statusCode: retry && !retryable ? undefined : data?.statusCode,
+      isRetryable: retryable,
+      responseHeaders: headers && Object.keys(headers).length ? headers : undefined,
+    }).toObject()
+  }
 
   export function reviewTelemetry(command: string | undefined): ReviewTelemetry | undefined {
     const cmd = reviewCommandName(command)
@@ -176,12 +207,13 @@ export namespace KiloSessionProcessor {
    */
   export function handleOffline(input: {
     error: unknown
+    message?: string
     sessionID: SessionID
     abort: AbortSignal
     set: (sessionID: SessionID, status: SessionStatus.Info) => Effect.Effect<void>
   }): Effect.Effect<"retry" | "blocked" | "aborted"> {
     return Effect.gen(function* () {
-      const msg = SessionNetwork.message(input.error)
+      const msg = input.message ?? SessionNetwork.message(input.error)
 
       const { id, promise } = yield* EffectBridge.fromPromise(() =>
         SessionNetwork.ask({
@@ -230,7 +262,10 @@ export namespace KiloSessionProcessor {
 
   // Dynamic import: app-runtime depends on this module, so a static import would
   // be circular; the annotated return type keeps the AppLayer type graph acyclic.
-  async function providerBaseURL(id: ProviderV2.ID | undefined, apiUrl: string | undefined): Promise<string | undefined> {
+  async function providerBaseURL(
+    id: ProviderV2.ID | undefined,
+    apiUrl: string | undefined,
+  ): Promise<string | undefined> {
     const url = (id ? await configured(id) : undefined) ?? apiUrl
     if (!url) return url
     // varsLoaders vars from resolveSDK are unreachable here; unexpanded names
@@ -341,6 +376,7 @@ export namespace KiloSessionProcessor {
     abort: AbortSignal
     set: (sessionID: SessionID, status: SessionStatus.Info) => Effect.Effect<void>
     used?: number
+    profileBound?: boolean
   }) {
     const limit = Flag.KILO_SESSION_RETRY_LIMIT
     return {
@@ -348,6 +384,7 @@ export namespace KiloSessionProcessor {
       offline: (info: { error: unknown; message: string }) =>
         handleOffline({
           error: info.error,
+          message: input.profileBound ? PROFILE_OFFLINE_MESSAGE : info.message,
           sessionID: input.sessionID,
           abort: input.abort,
           set: input.set,
