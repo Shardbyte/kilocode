@@ -3,6 +3,9 @@ name: Provider account qualification
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - "provider-account-qualification-*"
 
 permissions:
   contents: read

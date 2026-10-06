@@ -543,7 +543,9 @@ The executable Linux corrective campaign is complete, but the strict whole-M10 d
 
 ## Hosted Qualification Plan
 
-Workflow: `.github/workflows/provider-account-qualification.yml`. Trigger: manual `workflow_dispatch` only. Permissions: `contents: read`; no write permission, fork-specific runner, normal-CI change or automatic acceptance. This campaign collects evidence without changing production authentication or Provider Account architecture. **M10 FAIL — CORRECTIVE WORK REQUIRED** and **M11 NOT ACCEPTED** remain unchanged. M12 is not begun.
+Workflow: `.github/workflows/provider-account-qualification.yml`. Triggers: manual `workflow_dispatch` and explicit pushes of tags matching `provider-account-qualification-*` only. Permissions: `contents: read`; no write permission, fork-specific runner, normal-CI change or automatic acceptance. This campaign collects evidence without changing production authentication or Provider Account architecture. **M10 FAIL — CORRECTIVE WORK REQUIRED** and **M11 NOT ACCEPTED** remain unchanged. M12 is not begun.
+
+GitHub requires the workflow to exist on the default branch before it can receive `workflow_dispatch` events. While this workflow is feature-branch-only, bootstrap qualification with an explicitly operator-created and pushed tag in the dedicated `provider-account-qualification-*` namespace. Creating and pushing such a tag is an intentional operator action that starts a run against the exact commit referenced by the tag via `${{ github.sha }}`. Ordinary branch pushes do not run hosted qualification. Manual dispatch remains available once GitHub can register the workflow from the default branch. No qualification tag has been created or pushed as part of this trigger change.
 
 > The hosted workflow implementation has not yet executed on GitHub Actions. Workflow code and local validation are not hosted qualification evidence.
 

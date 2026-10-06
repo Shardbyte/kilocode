@@ -17,8 +17,16 @@ const workflow = Bun.YAML.parse(await Bun.file(file).text()) as {
   jobs: Record<string, Job>
 }
 
-test("manual workflow keeps least privilege and uses standard hosted platform matrices", () => {
-  expect(Object.keys(workflow.on)).toEqual(["workflow_dispatch"])
+test("qualification runs only on manual dispatch or explicit qualification tags", () => {
+  expect(workflow.on).toEqual({ workflow_dispatch: null, push: { tags: ["provider-account-qualification-*"] } })
+  expect(workflow.on.push).not.toHaveProperty("branches")
+  expect(workflow.on.push).not.toHaveProperty("branches-ignore")
+  for (const event of ["pull_request", "pull_request_target", "schedule", "repository_dispatch"]) {
+    expect(workflow.on).not.toHaveProperty(event)
+  }
+})
+
+test("qualification workflow keeps least privilege and uses standard hosted platform matrices", () => {
   expect(workflow.permissions).toEqual({ contents: "read" })
   const matrix = [
     { platform: "linux", runner: "ubuntu-24.04" },
