@@ -540,3 +540,66 @@ Final inventory: **18 modified tracked files +49 untracked files =67**, all unst
 The executable Linux corrective campaign is complete, but the strict whole-M10 disposition cannot be PASS while mandatory historical deployed-client execution remains NOT RUN. This is an external evidence requirement, not an unresolved aggregate defect or an architectural redesign recommendation.
 
 **M10 FAIL — CORRECTIVE WORK REQUIRED**
+
+## Hosted Qualification Plan
+
+Workflow: `.github/workflows/provider-account-qualification.yml`. Trigger: manual `workflow_dispatch` only. Permissions: `contents: read`; no write permission, fork-specific runner, normal-CI change or automatic acceptance. This campaign collects evidence without changing production authentication or Provider Account architecture. **M10 FAIL — CORRECTIVE WORK REQUIRED** and **M11 NOT ACCEPTED** remain unchanged. M12 is not begun.
+
+> The hosted workflow implementation has not yet executed on GitHub Actions. Workflow code and local validation are not hosted qualification evidence.
+
+### Current Platform Campaign
+
+| Runner | Intended architecture | Work |
+|---|---|---|
+| `ubuntu-24.04` | x64 | Portable/current subset, current client boundaries, full Linux qualification and broader JetBrains tests/typecheck |
+| `windows-2025` | x64 | Portable/current subset, supported client boundaries, focused JetBrains tests/typecheck via direct `gradlew.bat` with real exit status |
+| `macos-15` | ARM64 | Portable/current subset, supported client boundaries, focused JetBrains tests/typecheck |
+
+All intended hosted executions currently have status `NOT_RUN`. Actual `runner.os` and `runner.arch`, runtime architecture and image metadata are recorded by the evidence runner. ARM64 macOS does not establish Intel macOS coverage. Linux-only archive, POSIX permission and process fixtures are not reported as portable coverage. A rejected hosted runner label is infrastructure failure, not an excuse to silently use Blacksmith.
+
+Bounded jobs: `current-platform`, `linux-full`, `jetbrains-current`, `historical-audit`, `historical-protocol`, `historical-vscode`, `historical-jetbrains`, `historical-cli-skew`, `migration-crash`. `aggregate` depends on every evidence-producing job and runs with `if: always()`. Expected executable failures fail their jobs after evidence is saved. Known unsupported historical cases emit `NOT_RUN` rather than a manufactured pass. Aggregation preserves failures, missing artifacts, platform identity and evidence classes; it cannot accept M10/M11 automatically.
+
+### Historical Sources And Toolchains
+
+The audit checked each pinned manifest and CLI source. Source availability is distinct from build, executable availability and compatibility. No historical CLI builds were executed locally by the audit. The CLI audit provisions an isolated exact-SHA checkout with independent Git metadata and a read-only shared object store, so Git-aware builds are not blocked merely by archive extraction. It verifies the checkout SHA and actual Bun version against the pin before building. This does not rerun or supersede the historical GUI archive failures. Each hosted audit artifact records exactly one observed availability result per checkpoint, with separate build commands, version execution and backend health outcome. The following runtime/build executions remain `NOT_RUN` before the first hosted campaign; source inspection does not promote them to executable evidence.
+
+| Checkpoint | Source SHA | Manifest Bun | Local availability evidence | Hosted runtime status |
+|---|---|---|---|---|
+| Pre-profile | `76bcfd40be616a72f4697b3041565f322245b462` | `1.3.14` | `SOURCE_INSPECTION` | `NOT_RUN` |
+| M1 | `7c264af09b44d6af218119de464effca1428b215` | `1.3.14` | `SOURCE_INSPECTION` | `NOT_RUN` |
+| M2-M6 | `72732985186da5a19c8febcb5bef3543541128b8` | `1.3.14` | `SOURCE_INSPECTION` | `NOT_RUN` |
+| M7 | `b20e2688f036703317cf87af35c6a32a2f3d9cd0` | `1.3.14` | `SOURCE_INSPECTION` | `NOT_RUN` |
+| M8-M9 | `34ceb6e9e2b35d3d5a7e2a5fa1f07be5c7529b12` | `1.3.14` | `SOURCE_INSPECTION` | `NOT_RUN` |
+| M9.5 | `f2ad10f5c6c67052940bf19f14ceacf28add6b9d` | `1.4.2` | `SOURCE_INSPECTION` | `NOT_RUN` |
+| Qualification checkpoint | `58c28a4261dbe8ca4dc7f8a6455fec74a31e3e5b` | `1.4.2` | `SOURCE_INSPECTION` | `NOT_RUN` |
+
+Historical Node/Java/Gradle/extension toolchain requirements are not inferred from current tooling. Discovered historical manifests/wrappers and actual runner runtime versions are recorded separately. A successful historical build is only `HISTORICAL_REBUILT`; an actual version/backend smoke is executable availability, not a claim that historical client/backend compatibility passed.
+
+### Established Protocol And Execution Gaps
+
+- **M8-M9 local `PASS`, `REAL_HTTP_HISTORICAL_PROTOCOL`:** pinned source at `34ceb6e9e2b35d3d5a7e2a5fa1f07be5c7529b12`, file hashes and source locations establish exact historical request shapes. Those requests reached the real current `Server.listen` with profiles enabled and failed closed before generation/fallback. This is not `HISTORICAL_EXECUTABLE`. The corresponding hosted run remains `NOT_RUN` until executed.
+- **Historical CLI -> current backend, `NOT_RUN`:** CLI owns an embedded backend and exposes no supported external-backend skew seam. Invoking an old self-hosting command does not test external HTTP skew.
+- **Current CLI -> historical backend, `NOT_RUN`:** the same embedded-server limitation applies in reverse. Product CLI architecture is not modified to manufacture a qualification seam.
+- **Abrupt migration kill/restart, `NOT_RUN`:** no deterministic abrupt-termination barrier exists inside the migration transaction. No production hook, arbitrary sleep/kill or exception-as-process-termination claim is added. Existing restart/idempotence/transaction evidence remains separately valid.
+- **Historical VS Code, `SOURCE_INSPECTION`, desktop flow `NOT_RUN`:** `34ceb6e9e2b35d3d5a7e2a5fa1f07be5c7529b12`, version 7.8.3. Archived `bun run compile` exited 1 because Git metadata was absent. Historical provider-account helper tests passed, but no built VSIX or provider-account desktop execution under `@vscode/test-electron` was established. CLI source-wrapper fallback is not a compiled binary. The manual job records the gap; it does not rerun a nonexistent executable path.
+- **Historical JetBrains, `SOURCE_INSPECTION`, desktop flow `NOT_RUN`:** `f2ad10f5c6c67052940bf19f14ceacf28add6b9d`, version 7.8.3. Archived `buildPlugin` and focused account-context tests exited 1 at Gradle configuration because Git metadata was absent. No provider-account desktop-flow tests or executable compatibility result were established. The manual job records the gap rather than equating a Gradle build with client/backend compatibility.
+
+### Artifact And Security Contract
+
+The only evidence classes are `CURRENT_EXECUTABLE`, `HISTORICAL_EXECUTABLE`, `HISTORICAL_REBUILT`, `REAL_HTTP_HISTORICAL_PROTOCOL`, `PROTOCOL_FIXTURE`, `SOURCE_INSPECTION`, `NOT_RUN`. Each JSON document includes the actual checked-out SHA (expected `${{ github.sha }}`), workflow run ID/attempt, timestamp, safe runner metadata and structured items. Historical source commit is a separate field. Wrong-commit artifacts are rejected or explicitly failed during aggregation.
+
+Deterministic non-secret artifact names distinguish tier/platform and run attempt. Per-job artifacts contain sanitized `evidence.json` documents only; the central `provider-account-qualification-summary` contains aggregate evidence, job outcomes and incomplete/failure reasons. Raw stdout/stderr, environment dumps, OAuth values, Authorization headers, auth JSON, SQLite stores and raw JUnit failure payloads are not uploaded. Captured output is internal to status/count extraction. Child processes receive an explicit environment allowlist and isolated HOME/XDG/AppData paths. Serialization rejects credential/output fields and redacts known synthetic secret-value patterns before writing JSON.
+
+Local script tests, typechecks, formatting, YAML parsing and repository guards validate the implementation, not the hosted campaign. GitHub Actions semantic validation and actual Linux/Windows/macOS execution remain pending the first hosted run.
+
+### Local Infrastructure Validation
+
+- `bun test ./script/kilocode/provider-account-qualification --timeout 60000`: **21 passed, 0 failed, 254 assertions, 7 files**. Includes the real current HTTP historical-protocol test, both CLI skew gaps, migration gap, sanitization, capture timeout/failure, missing-artifact summary, suite/count selection, historical unavailable-source handling and YAML/workflow structure assertions. Temporary test artifacts are removed and are not hosted campaign evidence.
+- `bun test ./script/kilocode/provider-account-qualification/skew.test.ts ./script/kilocode/provider-account-qualification/crash.test.ts --timeout 60000`: **3 passed, 0 failed, 8 assertions**. These cases are also included in the full infrastructure run, not additional independent campaign coverage.
+- `node_modules/.bin/tsgo --ignoreConfig --noEmit --target esnext --module preserve --moduleResolution bundler --types bun --skipLibCheck --strict script/kilocode/provider-account-qualification/*.ts`: passed; bounded check of the actual scripts/tests rather than an unrelated monorepo rebuild.
+- Scoped `oxlint --quiet script/kilocode/provider-account-qualification script/check-workflows.ts`: zero errors; 18 non-blocking warnings from assertion/type-narrowing lint rules remain. No guard was weakened.
+- Prettier check for the new workflow, allowlist and qualification scripts: passed. The existing Markdown padding guard passed.
+- `bun run script/check-opencode-annotations.ts --worktree`: passed. `bun run script/check-workflows.ts`: passed, 34 allowed workflows. YAML parses with the existing Bun YAML parser; focused tests verify manual trigger, read-only permissions, runner matrices, pinned sources, checkout SHA binding, gap jobs and always-run aggregation/uploads.
+- `git diff --check`: passed. Normal CI workflows and all production files are unchanged; the allowlist has only the deliberate new-workflow entry. Changes remain unstaged/uncommitted on `feat/provider-account-profiles` at `58c28a4261dbe8ca4dc7f8a6455fec74a31e3e5b`, with the remote branch observed at the same SHA.
+
+No local Actions semantic validator is installed. **GitHub Actions semantic validation pending first hosted run.** This validation does not accept M10/M11 or begin M12.

@@ -1,0 +1,367 @@
+# kilocode_change - new file
+name: Provider account qualification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  current-platform:
+    timeout-minutes: 90
+    name: Current portable and clients (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-24.04
+          - platform: windows
+            runner: windows-2025
+          - platform: macos
+            runner: macos-15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+        with:
+          install-flags: --ignore-scripts
+      - name: Record portable qualification
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          QUALIFICATION_RUNNER_OS: ${{ runner.os }}
+          QUALIFICATION_RUNNER_ARCH: ${{ runner.arch }}
+        run: bun run script/kilocode/provider-account-qualification/run.ts portable ${{ matrix.platform }} "${{ runner.temp }}/portable-${{ matrix.platform }}.json"
+      - name: Publish portable evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: provider-account-portable-${{ matrix.platform }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/portable-${{ matrix.platform }}.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Record client qualification
+        if: always()
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          QUALIFICATION_RUNNER_OS: ${{ runner.os }}
+          QUALIFICATION_RUNNER_ARCH: ${{ runner.arch }}
+        run: bun run script/kilocode/provider-account-qualification/run.ts clients ${{ matrix.platform }} "${{ runner.temp }}/clients-${{ matrix.platform }}.json"
+      - name: Publish client evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: provider-account-clients-${{ matrix.platform }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/clients-${{ matrix.platform }}.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  linux-full:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+        with:
+          install-flags: --ignore-scripts
+      - uses: ./.github/actions/setup-linux-sandbox
+      - name: Run Linux qualification
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          QUALIFICATION_RUNNER_OS: ${{ runner.os }}
+          QUALIFICATION_RUNNER_ARCH: ${{ runner.arch }}
+        run: bun run script/kilocode/provider-account-qualification/run.ts linux-full linux "${{ runner.temp }}/linux-full.json"
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: provider-account-linux-full-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/linux-full.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  jetbrains-current:
+    name: Current JetBrains (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-24.04
+          - platform: windows
+            runner: windows-2025
+          - platform: macos
+            runner: macos-15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: ./.github/actions/setup-bun
+        with:
+          install-flags: --ignore-scripts
+      - name: Run current Gradle qualification
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          QUALIFICATION_RUNNER_OS: ${{ runner.os }}
+          QUALIFICATION_RUNNER_ARCH: ${{ runner.arch }}
+          QUALIFICATION_JAVA: "true"
+        run: bun run script/kilocode/provider-account-qualification/run.ts jetbrains ${{ matrix.platform }} "${{ runner.temp }}/jetbrains-${{ matrix.platform }}.json"
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: provider-account-jetbrains-${{ matrix.platform }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/jetbrains-${{ matrix.platform }}.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  historical-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        sha:
+          - 76bcfd40be616a72f4697b3041565f322245b462
+          - 7c264af09b44d6af218119de464effca1428b215
+          - 72732985186da5a19c8febcb5bef3543541128b8
+          - b20e2688f036703317cf87af35c6a32a2f3d9cd0
+          - 34ceb6e9e2b35d3d5a7e2a5fa1f07be5c7529b12
+          - f2ad10f5c6c67052940bf19f14ceacf28add6b9d
+          - 58c28a4261dbe8ca4dc7f8a6455fec74a31e3e5b
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Inspect pinned historical source and toolchain
+        id: inspect
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          QUALIFICATION_RUNNER_OS: ${{ runner.os }}
+          QUALIFICATION_RUNNER_ARCH: ${{ runner.arch }}
+        run: bun run script/kilocode/provider-account-qualification/history.ts inspect ${{ matrix.sha }} "${{ runner.temp }}/history-${{ matrix.sha }}"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ steps.inspect.outputs.bun-version }}
+      - name: Build and smoke-test historical CLI
+        if: steps.inspect.outputs.bun-version != ''
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          QUALIFICATION_RUNNER_OS: ${{ runner.os }}
+          QUALIFICATION_RUNNER_ARCH: ${{ runner.arch }}
+        run: bun run script/kilocode/provider-account-qualification/history.ts run ${{ matrix.sha }} "${{ steps.inspect.outputs.history-dir }}" "${{ runner.temp }}/history-${{ matrix.sha }}.json"
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: provider-account-history-${{ matrix.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/history-${{ matrix.sha }}.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  historical-protocol:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+        with:
+          install-flags: --ignore-scripts
+      - name: Run historical protocol skew qualification
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          QUALIFICATION_RUNNER_OS: ${{ runner.os }}
+          QUALIFICATION_RUNNER_ARCH: ${{ runner.arch }}
+          QUALIFICATION_EVIDENCE: ${{ runner.temp }}/historical-protocol.json
+        run: bun run script/kilocode/provider-account-qualification/skew.ts protocol
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: provider-account-historical-protocol-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/historical-protocol.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  historical-vscode:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Record historical VS Code execution gap
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          QUALIFICATION_RUNNER_OS: ${{ runner.os }}
+          QUALIFICATION_RUNNER_ARCH: ${{ runner.arch }}
+        run: bun run script/kilocode/provider-account-qualification/gui.ts deferred vscode "${{ runner.temp }}/historical-vscode.json"
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: provider-account-historical-vscode-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/historical-vscode.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  historical-jetbrains:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Record historical JetBrains execution gap
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          QUALIFICATION_RUNNER_OS: ${{ runner.os }}
+          QUALIFICATION_RUNNER_ARCH: ${{ runner.arch }}
+        run: bun run script/kilocode/provider-account-qualification/gui.ts deferred jetbrains "${{ runner.temp }}/historical-jetbrains.json"
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: provider-account-historical-jetbrains-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/historical-jetbrains.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  historical-cli-skew:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Inspect historical CLI skew
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          QUALIFICATION_RUNNER_OS: ${{ runner.os }}
+          QUALIFICATION_RUNNER_ARCH: ${{ runner.arch }}
+          QUALIFICATION_EVIDENCE: ${{ runner.temp }}/historical-cli-skew.json
+        run: bun run script/kilocode/provider-account-qualification/skew.ts cli
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: provider-account-historical-cli-skew-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/historical-cli-skew.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  migration-crash:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Record migration crash boundary
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          QUALIFICATION_RUNNER_OS: ${{ runner.os }}
+          QUALIFICATION_RUNNER_ARCH: ${{ runner.arch }}
+          QUALIFICATION_EVIDENCE: ${{ runner.temp }}/migration-crash.json
+        run: bun run script/kilocode/provider-account-qualification/crash.ts
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: provider-account-migration-crash-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/migration-crash.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  aggregate:
+    if: always()
+    needs:
+      - current-platform
+      - linux-full
+      - jetbrains-current
+      - historical-audit
+      - historical-protocol
+      - historical-vscode
+      - historical-jetbrains
+      - historical-cli-skew
+      - migration-crash
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/download-artifact@v6
+        with:
+          path: ${{ runner.temp }}/qualification-evidence
+          pattern: provider-account-*
+          merge-multiple: true
+      - name: Aggregate evidence
+        if: always()
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          QUALIFICATION_NEEDS: ${{ toJSON(needs) }}
+          QUALIFICATION_RUNNER_OS: ${{ runner.os }}
+          QUALIFICATION_RUNNER_ARCH: ${{ runner.arch }}
+        run: bun run script/kilocode/provider-account-qualification/run.ts aggregate "${{ runner.temp }}/qualification-evidence" "${{ runner.temp }}/aggregate.json"
+      - name: Upload aggregate evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: provider-account-qualification-summary
+          path: ${{ runner.temp }}/aggregate.json
+          if-no-files-found: warn
+          retention-days: 30
