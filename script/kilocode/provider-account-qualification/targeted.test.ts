@@ -59,7 +59,11 @@ test("diagnostic branch template has no full campaign or automatic trigger", asy
     permissions: Record<string, string>
     jobs: Record<
       string,
-      { if: string; "runs-on": string; steps: { run?: string; uses?: string; with?: Record<string, unknown> }[] }
+      {
+        if: string | boolean
+        "runs-on": string
+        steps: { run?: string; uses?: string; with?: Record<string, unknown> }[]
+      }
     >
   }
   expect(workflow.on).toEqual({ workflow_dispatch: null })
@@ -69,7 +73,9 @@ test("diagnostic branch template has no full campaign or automatic trigger", asy
   expect(workflow.jobs.windows?.["runs-on"]).toBe("windows-2025")
   expect(workflow.jobs.macos?.["runs-on"]).toBe("macos-15")
   for (const [platform, job] of Object.entries(workflow.jobs)) {
-    expect(job.if).toBe("startsWith(github.ref, 'refs/heads/diagnostic/provider-account-run2-')")
+    expect(job.if).toBe(
+      platform === "macos" ? false : "startsWith(github.ref, 'refs/heads/diagnostic/provider-account-run2-')",
+    )
     expect(job.steps.filter((step) => step.run).map((step) => step.run)).toEqual([
       platform === "history"
         ? 'bun run script/kilocode/provider-account-qualification/history-targeted.ts "${{ runner.temp }}/history-targeted.json"'

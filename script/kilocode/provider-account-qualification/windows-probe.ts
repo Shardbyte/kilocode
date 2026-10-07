@@ -148,6 +148,7 @@ export async function main(out = process.argv.at(2)) {
   if (process.platform !== "win32") throw new Error("windows-probe-requires-windows")
   if (!out) throw new Error("windows-probe-output-required")
   const home = environment().HOME!
+  await mkdir(home, { recursive: true })
   const mode = (await stat(home)).mode & 0o777
   await chmod(home, 0o700)
   try {

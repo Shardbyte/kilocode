@@ -67,7 +67,7 @@ jobs:
           if-no-files-found: error
 
   macos:
-    if: startsWith(github.ref, 'refs/heads/diagnostic/provider-account-run2-')
+    if: false # No third JetBrains vote; its failure stage is already identified.
     runs-on: macos-15
     timeout-minutes: 90
     steps:

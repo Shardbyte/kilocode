@@ -263,6 +263,7 @@ export async function main(args = process.argv.slice(2)) {
             "-c",
             "filter.lfs.required=false",
             "checkout",
+            "--force",
             "--detach",
             sourceSha,
           ],
