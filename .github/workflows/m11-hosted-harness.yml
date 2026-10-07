@@ -1,0 +1,25 @@
+name: M11 Hosted Harness Diagnostic
+on:
+  push:
+    branches:
+      - diagnostic/m11-hosted-harness-failure
+jobs:
+  diagnostic:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Patch history.ts to log everything
+        run: |
+          sed -i 's/log.reason = "build-command-failed"/log.reason = "build-command-failed: " + text.slice(0, 500).replace(\/\\n\/g, " ")/' script/kilocode/provider-account-qualification/history.ts
+          sed -i 's/console.error(codes.includes(message as (typeof codes)\[number\]) ? message : "qualification-failed")/console.error(err)/' script/kilocode/provider-account-qualification/history.ts
+      - run: |
+          mkdir -p /tmp/out
+          bun script/kilocode/provider-account-qualification/history.ts inspect 58c28a4261dbe8ca4dc7f8a6455fec74a31e3e5b /tmp/kilo/m11-hist-58c28a42 /tmp/out/inspect.json
+          bun script/kilocode/provider-account-qualification/history.ts run 58c28a4261dbe8ca4dc7f8a6455fec74a31e3e5b /tmp/kilo/m11-hist-58c28a42 /tmp/out/evidence.json
+          cat /tmp/out/evidence.json
