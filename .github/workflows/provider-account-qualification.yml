@@ -171,8 +171,9 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
           QUALIFICATION_RUNNER_OS: ${{ runner.os }}
           QUALIFICATION_RUNNER_ARCH: ${{ runner.arch }}
-        run: bun run script/kilocode/provider-account-qualification/history.ts inspect ${{ matrix.sha }} "${{ runner.temp }}/history-${{ matrix.sha }}"
+        run: bun run script/kilocode/provider-account-qualification/history.ts inspect ${{ matrix.sha }} "${{ runner.temp }}/history-${{ matrix.sha }}" "${{ runner.temp }}/history-${{ matrix.sha }}.json"
       - uses: oven-sh/setup-bun@v2
+        if: steps.inspect.outputs.bun-version != ''
         with:
           bun-version: ${{ steps.inspect.outputs.bun-version }}
       - name: Build and smoke-test historical CLI

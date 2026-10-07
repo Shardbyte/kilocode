@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { afterAll, describe, expect, test } from "bun:test"
-import { aggregate, capture, environment, save, type Item } from "./evidence"
+import { aggregate, capture, environment, save, version, type Item } from "./evidence"
 
 const dirs: string[] = []
 
@@ -17,6 +17,19 @@ async function temp() {
 }
 
 describe("qualification evidence", () => {
+  test("publishes bounded toolchain versions instead of arbitrary tool output", async () => {
+    expect(await version(["node", "-e", "process.stdout.write('v24.0.0\\r\\n')"])).toBe("v24.0.0")
+    for (const text of [
+      "private provider diagnostic",
+      "SYNTHETIC_SECRET_VALUE",
+      "v24.0.0 private@example.com",
+      "v24.0.0-" + "x".repeat(100),
+    ]) {
+      expect(await version(["node", "-e", `process.stdout.write(${JSON.stringify(text)})`])).toBe("unavailable")
+      expect(await version(["node", "-e", `process.stderr.write(${JSON.stringify(text)})`])).toBe("unavailable")
+    }
+  })
+
   test("captures child success, failure, timeout, and isolated allowlisted environment", async () => {
     const env = environment({ QUALIFICATION_UNSAFE_SENTINEL: "synthetic" })
     expect(env.QUALIFICATION_UNSAFE_SENTINEL).toBeUndefined()

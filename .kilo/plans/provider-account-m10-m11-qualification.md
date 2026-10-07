@@ -605,3 +605,127 @@ Local script tests, typechecks, formatting, YAML parsing and repository guards v
 - `git diff --check`: passed. Normal CI workflows and all production files are unchanged; the allowlist has only the deliberate new-workflow entry. Changes remain unstaged/uncommitted on `feat/provider-account-profiles` at `58c28a4261dbe8ca4dc7f8a6455fec74a31e3e5b`, with the remote branch observed at the same SHA.
 
 No local Actions semantic validator is installed. **GitHub Actions semantic validation pending first hosted run.** This validation does not accept M10/M11 or begin M12.
+
+## Hosted Qualification Run 1
+
+This appended record supersedes the earlier pre-run hosted `NOT_RUN` statements only for the executions explicitly recorded below. Earlier local qualification history and failures remain intact. The downloaded Run 1 JSON documents are immutable; later diagnostic tooling and local reproduction do not rewrite or replace them.
+
+- Run: [`37505370416`](https://github.com/Shardbyte/kilocode/actions/runs/37505370416), attempt **1**, repository `Shardbyte/kilocode`.
+- Event: `push`; ref: `refs/tags/provider-account-qualification-0c2be33`; tag: `provider-account-qualification-0c2be33`.
+- Qualification/checked-out SHA: `0c2be33f04712523e8f524a585f9e0e849eedd2f`. Local tag and remote tag both resolve to this commit. The origin branch `feat/provider-account-profiles` also remains at that SHA.
+- Created/started: `2026-10-06T17:40:30Z`; last job completed: `2026-10-06T17:59:07Z`; run terminal update: `2026-10-06T17:59:08Z`. Status: `completed`; conclusion: `failure`.
+- All **20 jobs** finished naturally: **9 success, 11 failure**. No cancellation, rerun, retry, dispatch, second tag, branch push or product fix occurred during Run 1 review.
+- All **16 evidence artifacts** were downloaded and inspected, including `provider-account-qualification-summary/aggregate.json`, under `/tmp/kilo/provider-account-run-37505370416-attempt-1/`. Each document binds the checked-out SHA, run ID, attempt and runner OS/architecture. No historical-audit artifacts were published.
+- Aggregate: **63 items: 41 PASS, 13 FAIL, 9 NOT_RUN**; `status: FAIL`; `qualificationAccepted: false`. The aggregate job failed at `Aggregate evidence` after saving and uploading the summary. This is failure propagation, not absence of an aggregate artifact.
+
+### Current Platform Results
+
+All rows below retain `CURRENT_EXECUTABLE`. Test counts are not proof of failed-test identity or cause.
+
+| Job / Item | runner.os / runner.arch | Run 1 Result | Executed Counts / Limit |
+|---|---|---|---|
+| Current portable and clients (linux): portable | Linux / X64 | PASS | Core 17, authority 17, schemas 4, SDK 4; zero failures |
+| Current portable and clients (windows): portable | Windows / X64 | PASS | Core 17, authority 17, schemas 4, SDK 4; zero failures |
+| Current portable and clients (macos): portable | macOS / ARM64 | PASS | Core 17, authority 17, schemas 4, SDK 4; zero failures; not Intel macOS coverage |
+| `clients:linux:vscode` | Linux / X64 | PASS | 267 passed, 0 failed, 1 skipped, 565 assertions |
+| `clients:windows:vscode` | Windows / X64 | FAIL | 264 passed, 2 failed, 0 skipped, 561 assertions; exact failed names absent from Run 1 artifact; attribution UNRESOLVED |
+| `clients:macos:vscode` | macOS / ARM64 | FAIL | 266 passed, 1 failed, 1 skipped, 564 assertions; exact failed name absent from Run 1 artifact; attribution UNRESOLVED |
+| Current client package typechecks | All three OS legs | PASS | OpenCode, core, SDK and VS Code typechecks pass on each OS |
+| `clients:windows:windows-worktree` | Windows / X64 | PASS | Existing process-lock regression: 1 passed, 6 assertions |
+| `clients:macos:darwin-profile` | macOS / ARM64 | PASS | Existing Darwin policy: 3 passed, 28 assertions; excluded tests are not claimed executed |
+| `linux-full:linux:qualification` | Linux / X64 | FAIL | 135 passed, 2 failed, 0 skipped, 1,364 assertions; exact failed names absent from Run 1 artifact; attribution UNRESOLVED |
+| `linux-full:linux:core-full` | Linux / X64 | PASS | History/migration/process group: 119 passed, 590 assertions |
+| `linux-full:linux:aggregate` | Linux / X64 | PASS | Prior single-process regression group: 816 passed, 0 failed, 1 skipped, 2,002 assertions; no retry |
+| `linux-full:linux:sdk-full` | Linux / X64 | PASS | 23 passed, 37 assertions |
+| `linux-full:linux:sdk-types`, `linux-full:linux:backend-types` | Linux / X64 | PASS | Both typechecks pass |
+| Current JetBrains (linux) | Linux / X64 | PASS | Full runner 5,527 passed, zero failures/skips; Java 21 Gradle typecheck passes |
+| Current JetBrains (windows) | Windows / X64 | PASS | Focused boundary group 42 passed, zero failures/skips; Java 21 Gradle typecheck passes |
+| Current JetBrains (macos) | macOS / ARM64 | PASS | Focused boundary group 42 passed, zero failures/skips; Java 21 Gradle typecheck passes |
+
+The Windows/macOS jobs failed at `Record client qualification`; Linux full failed at `Run Linux qualification`. These three current executable failures are not classified as product, platform, harness or flaky defects from counts alone. Local Linux diagnostics below are separate evidence; Windows/macOS are not emulated locally.
+
+### Historical Inspection Failures
+
+All seven `historical-audit` matrix legs ran on Linux / X64 and failed at `Inspect pinned historical source and toolchain`. The visible helper diagnostic was only `Error`; the build/runtime phase did not start and no availability artifacts were produced. This is an M11 qualification-infrastructure failure with **undetermined availability**, not seven demonstrated unavailable or source-only checkpoints.
+
+| Checkpoint | Pinned SHA | Run 1 Status / Evidence |
+|---|---|---|
+| Pre-profile | `76bcfd40be616a72f4697b3041565f322245b462` | Inspection job FAIL; availability unknown |
+| M1 | `7c264af09b44d6af218119de464effca1428b215` | Inspection job FAIL; availability unknown |
+| M2-M6 | `72732985186da5a19c8febcb5bef3543541128b8` | Inspection job FAIL; availability unknown |
+| M7 | `b20e2688f036703317cf87af35c6a32a2f3d9cd0` | Inspection job FAIL; availability unknown |
+| M8-M9 | `34ceb6e9e2b35d3d5a7e2a5fa1f07be5c7529b12` | Inspection job FAIL; availability unknown |
+| M9.5 | `f2ad10f5c6c67052940bf19f14ceacf28add6b9d` | Inspection job FAIL; availability unknown |
+| Qualification checkpoint | `58c28a4261dbe8ca4dc7f8a6455fec74a31e3e5b` | Inspection job FAIL; availability unknown |
+
+Run 1's aggregate records seven `missing:history:<checkpoint>` FAIL items with evidence `SOURCE_INSPECTION`. These are missing-artifact sentinels, not availability classifications or historical execution evidence. It also records three FAIL job summaries (`job:linux-full`, `job:current-platform`, `job:historical-audit`) with `SOURCE_INSPECTION`. Together with the three `CURRENT_EXECUTABLE` failures, these account for all 13 FAIL items without conflating item counts and failed jobs.
+
+### Protocol And Retained Gaps
+
+`historical-protocol:source` is PASS / `SOURCE_INSPECTION`; `historical-protocol:http` is PASS / `REAL_HTTP_HISTORICAL_PROTOCOL`. Pinned M8-M9 source establishes commit-message path/language and enhancement text-only request shapes. Those shapes were sent to the real current HTTP server with profiles enabled and both failed closed before generation/fallback. This is not execution of a historical client application. `historical-cli-skew:remote-target-audit` is PASS / `SOURCE_INSPECTION` and establishes the embedded-backend limitation only.
+
+All nine retained gaps are **NOT_RUN / NOT_RUN**, even though the jobs recording them succeeded:
+
+| Exact Item | Retained Reason |
+|---|---|
+| `historical-vscode:build` | Historical archive build failed without Git metadata; no hosted build or rebuilt VSIX established |
+| `historical-vscode:accountTests` | Local helper tests do not establish hosted helper or desktop-flow execution |
+| `historical-vscode:guiFlow` | No historical provider-account desktop-flow executable path established |
+| `historical-jetbrains:build` | Historical archive build failed without Git metadata; no hosted rebuild established |
+| `historical-jetbrains:accountTests` | Local focused Gradle tests failed at configuration; hosted tests not run |
+| `historical-jetbrains:guiFlow` | No historical provider-account desktop-flow executable path established |
+| `historical-cli-skew:old-cli-to-current-http` | CLI owns an embedded backend; no supported external-backend skew seam |
+| `historical-cli-skew:current-cli-to-old-http` | Same embedded-backend limitation in reverse |
+| `migration-crash:abrupt-during-migration` | No deterministic pre-commit transaction barrier; no abrupt-kill recovery assertion performed |
+
+### Safety And Disposition
+
+Run 1 evidence JSON inspection found no unsafe credential/output fields or known synthetic credential markers. Captured child stdout/stderr, assertion values, stacks, provider errors, headers, OAuth values, auth stores and databases were not uploaded as evidence. Raw logs used for later diagnosis remain private under `/tmp/kilo`; only safe structured metadata may enter this ledger or an artifact. A bounded marker scan is not a general proof that arbitrary secrets can be recognized.
+
+The Run 1 campaign and review left the repository clean with empty index at `0c2be33f04712523e8f524a585f9e0e849eedd2f`, branch `feat/provider-account-profiles`; origin matched. The only new Git ref was the one explicitly authorized qualification tag. Later authorized diagnostic-infrastructure changes are unstaged/uncommitted and do not alter this execution record.
+
+**M10 FAIL — CORRECTIVE WORK REQUIRED**
+
+**M11 NOT ACCEPTED**
+
+No milestone acceptance, product correction or M12 is authorized by this record. The three current failures require exact identities and evidence-based attribution before any new M10 disposition is considered.
+
+### Authorized Diagnostic Closure
+
+The following work is separate from immutable Run 1 evidence. Only qualification tooling, qualification tests, the workflow's evidence plumbing and this ledger are changed. Changes remain unstaged/uncommitted for human review. No product, authentication or account-routing behavior is corrected, and no hosted rerun or further qualification tag is authorized.
+
+Local Linux reproduction used the selected `qualification` suite definition, Bun **1.4.2**, the qualification capture/environment allowlist and the same suite overrides (`KILO_EXPERIMENTAL_DISABLE_FILEWATCHER=true`, empty `KILO_TEST_PROFILE`, `TURBO_FORCE=true`, `GRADLE_OPTS=-Dorg.gradle.daemon=false`). Local OS/kernel: Linux **6.12.107**, x86_64; Git **2.47.3**. This is not the hosted Ubuntu image, and CI/GitHub Actions variables were absent. Both the initial full-tier local attempt and later isolated qualification invocation recorded **136 passed, 1 failed, 0 skipped**, exit **1**, no suite timeout, versus hosted **135 passed, 2 failed**. This divergence does not establish either hosted identity.
+
+The one source-validated local failed identity is:
+
+- File: `packages/opencode/test/kilocode/qualification/caller-failures.test.ts`.
+- Top-level test: `Agent.generate and roll-call fail safely for real SDK errors and captured production output` (no enclosing `describe`).
+- Safe category: `assertion-failure`; attribution: **UNRESOLVED**.
+- Assertion location: line **79**, instrumented AppRuntime invocation-count check. The child-process status and preceding matrix assertions passed. The instrumentation is in `caller-failures.fixture.ts:41-50`. Counts/diagnostic text do not establish product versus fixture/runtime cause. No assertion actual/expected values, child output or exception messages are recorded here.
+
+An unvalidated utility-authority diagnostic is not counted as a second failed test identity. The initial local attempt selected the whole `linux-full` tier rather than only its failed qualification suite; its repeated core/aggregate/SDK successes and typechecks are not replacement campaign evidence. The subsequent invocation selected only `qualification`; no product/test failure was fixed.
+
+Read-only GitHub API downloads of the Windows and macOS job logs succeeded. Both logs retain `vscode: FAIL` and successful portable execution/artifact upload, but neither contains captured Bun child output, failed-test names or test counts. Counts remain those in the immutable evidence JSON: Windows **264 passed, 2 failed**; macOS ARM64 **266 passed, 1 failed, 1 skipped**. Both attributions remain **UNRESOLVED**, with failure identities unknown and safe diagnostic category `unknown-safe`. Neither OS was emulated locally. The new parser can provide safe identities on a future reviewed execution; it cannot recover output that Run 1 never published.
+
+`run.ts` now recognizes Bun test-file headers and failure records with LF/CRLF and normalized path separators. Files must resolve inside the checkout (including realpath/symlink containment); a Windows absolute header on a non-Windows host is not mapped by filename guess. Test names must match static source titles and pass bounded safety checks; unsafe names are omitted. Each emitted `failedTests` record contains only repository-relative file, optional safe name and a stable category. Format drift yields no invented names; counts remain independent. Timeout/setup/process failures retain safe status metadata; assertion categories depend on recognized assertion syntax, not failure totals. Categories are reset between test records.
+
+Security fixtures capture a real failing Bun subprocess with synthetic credential-like assertion values and an unsafe title, then inject hostile error, stack, stdout and stderr content. Serialized evidence preserves safe identity/category metadata only. Additional cases cover email/URL/home-path/overlong/static secret titles, nonexistent files, unrelated Windows absolute paths and malformed failure formats. The existing save-time artifact sanitizer remains authoritative and unchanged. Toolchain metadata is additionally restricted to bounded release-version formats rather than arbitrary subprocess output. Raw diagnostic captures remain under `/tmp/kilo` with restrictive permissions and are not uploaded, printed or committed.
+
+Historical inspection now publishes the expected `history:<checkpoint>` FAIL / `SOURCE_INSPECTION` artifact with a stable operation reason, before exiting nonzero. All ten outcomes are exercised through the real helper with temporary Git/process fault fixtures: `checkpoint-unavailable` (NOT_RUN / NOT_RUN), `git-probe-failed`, `clone-failed`, `checkout-failed`, `revision-mismatch`, `manifest-read-failed`, `toolchain-mismatch`, `source-corrupted`, `output-write-failed` and `unexpected-inspection-failure`. Successful inspection records `INSPECTED` and continues the existing availability audit; no compatibility claim is added. The workflow supplies the artifact destination and requires successful inspection plus a nonempty Bun version before toolchain setup/runtime audit. Upload still runs after inspection failure. Aggregation consumes a real failed history item even when an expected job reports success, without appending `missing:history:<checkpoint>`.
+
+If the publication destination itself cannot be written or evidence cannot be bound to the checkout, the helper cannot fabricate an artifact. It emits only the stable publication failure code; a missing-artifact sentinel is then legitimate. A dedicated CLI test verifies this exception without exposing filesystem error messages or stacks. The current runner also masks unexpected CLI exceptions with a fixed failure code. Per-test categories are based on individual observed records; a later suite/process timeout does not relabel earlier assertion failures. Nested static `describe`/test titles can retain full safe names. Structured-payload/control-character titles are omitted before the unchanged final sanitizer.
+
+All seven private Run 1 historical logs contain only the generic `Error`, without an internal stack/source line. In a fresh full-history shared clone detached at the exact qualification SHA, the original inspection command failed once and succeeded on a subsequent local attempt. The detached checkout, a subsequent Git probe and diagnostic inspection succeeded. These observations do **not** identify the first failing internal operation and do **not** establish a flaky-test or platform-defect classification. Local Git was **2.47.3**; hosted inspection logs report **2.55.0**. Original historical failure attribution remains **UNRESOLVED**; no availability classification is backfilled into Run 1.
+
+Diagnostic-infrastructure validation (local worktree, not replacement hosted qualification):
+
+- `bun test ./script/kilocode/provider-account-qualification --timeout 60000`: **37 PASS, 0 FAIL, 0 SKIP, 400 assertions**. Raw runner output is private under `/tmp/kilo/run1-diagnostic-validation/`.
+- Bounded `tsgo --ignoreConfig --noEmit --target esnext --module preserve --moduleResolution bundler --types bun --skipLibCheck --strict script/kilocode/provider-account-qualification/*.ts`: **PASS**.
+- Scoped `oxlint --quiet script/kilocode/provider-account-qualification`: **0 errors, 23 warnings**; no product-source lint changes.
+- Prettier check of the qualification tooling directory and workflow: **PASS**.
+
+These results validate diagnostic safety/semantics only. They do not correct the three current executable failures, establish historical availability/compatibility, remove retained NOT_RUN gaps, accept M10/M11 or begin M12.
+
+The bounded Git-version-matched follow-up could not execute: Git **2.55.0** is not preinstalled, and this environment lacks `make` and a C compiler needed to build the official release. No release download, build, global installation or Git configuration change was performed. Consequently, no matched-version command result or first deterministic internal failure operation is established. Historical inspection root cause remains **UNRESOLVED**, rather than a guessed Git/platform defect. Diagnostic infrastructure is ready for human review; original failure attribution is explicitly incomplete. No hosted rerun or further qualification tag was created.
+
+Final local guards pass: workflow allowlist (**34 workflows**), OpenCode annotation check, markdown table padding (**372 files**) and `git diff --check`. HEAD, origin branch and the authorized tag remain `0c2be33f04712523e8f524a585f9e0e849eedd2f`; branch remains `feat/provider-account-profiles`. The index is empty; the worktree contains only the nine authorized diagnostic/workflow/test/plan modifications. No commits or pushes were made during diagnostic closure.

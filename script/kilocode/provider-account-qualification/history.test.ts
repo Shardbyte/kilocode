@@ -3,7 +3,7 @@ import { attempt, checkpoints, classify, main } from "./history"
 import { aggregate, capture, save, type Item } from "./evidence"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
 import os from "node:os"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..")
@@ -31,6 +31,33 @@ async function show(sha: string, file: string) {
   return text
 }
 
+async function gitShim(dir: string, fault: string) {
+  const bin = path.join(dir, "bin")
+  await mkdir(bin)
+  const git = Bun.which("git")!
+  const script = `#!/bin/sh
+real='${git}'
+fault='${fault}'
+if [ "$fault" = unavailable ] && [ "$1" = cat-file ]; then echo 'fatal: Not a valid object name missing^{commit}' >&2; exit 1; fi
+if [ "$fault" = probe ] && [ "$1" = cat-file ]; then echo 'fatal: synthetic probe failure' >&2; exit 1; fi
+if [ "$fault" = clone ] && [ "$1" = clone ]; then exit 1; fi
+if [ "$fault" = checkout ] && [ "$1" = checkout ]; then exit 1; fi
+if [ "$fault" = revision ] && [ "$1" = rev-parse ] && [ "$2" = HEAD ] && [ "$PWD" != '${root}' ]; then echo '0000000000000000000000000000000000000000'; exit 0; fi
+"$real" "$@"
+code=$?
+if [ "$code" -eq 0 ] && [ "$1" = checkout ]; then
+  if [ "$fault" = manifest ]; then printf '{' > "$PWD/package.json"; fi
+  if [ "$fault" = toolchain ]; then printf '{"packageManager":"bun@9.9.9"}' > "$PWD/package.json"; fi
+  if [ "$fault" = corrupted ]; then rm -f "$PWD/packages/opencode/package.json"; fi
+fi
+exit "$code"
+`
+  const file = path.join(bin, "git")
+  await Bun.write(file, script)
+  await chmod(file, 0o700)
+  return `${bin}${path.delimiter}${process.env.PATH ?? ""}`
+}
+
 describe("historical runtime checkpoints", () => {
   test("manifest pins each requested commit to its inspected Bun toolchain", async () => {
     expect(checkpoints.map((item) => item.sha)).toEqual([
@@ -55,7 +82,9 @@ describe("historical runtime checkpoints", () => {
   })
 
   test("inspection rejects unknown revisions before writing an archive", async () => {
-    await expect(main(["inspect", "deadbeef", root])).rejects.toThrow("checkpoint-not-allowlisted")
+    await expect(main(["inspect", "deadbeef", root, path.join(os.tmpdir(), "unused-history.json")])).rejects.toThrow(
+      "checkpoint-not-allowlisted",
+    )
   })
 
   test("missing historical source records unavailability without executing or passing a build", async () => {
@@ -98,7 +127,7 @@ describe("historical runtime checkpoints", () => {
     const prior = process.env.GITHUB_OUTPUT
     process.env.GITHUB_OUTPUT = output
     try {
-      await main(["inspect", checkpoints.at(-1)!.sha, target])
+      await main(["inspect", checkpoints.at(-1)!.sha, target, path.join(temp, "history.json")])
       const meta = JSON.parse(await readFile(path.join(target, "inspected.json"), "utf8"))
       const lines = await readFile(output, "utf8")
       expect(meta.status).toBe("INSPECTED")
@@ -112,6 +141,134 @@ describe("historical runtime checkpoints", () => {
     } finally {
       if (prior == null) delete process.env.GITHUB_OUTPUT
       else process.env.GITHUB_OUTPUT = prior
+      await rm(temp, { recursive: true, force: true })
+    }
+  })
+
+  test("inspection maps every deterministic failure to sanitized evidence", async () => {
+    const faults = [
+      { fault: "unavailable", reason: "checkpoint-unavailable", status: "NOT_RUN", evidence: "NOT_RUN" },
+      { fault: "probe", reason: "git-probe-failed" },
+      { fault: "clone", reason: "clone-failed" },
+      { fault: "checkout", reason: "checkout-failed" },
+      { fault: "revision", reason: "revision-mismatch" },
+      { fault: "manifest", reason: "manifest-read-failed" },
+      { fault: "toolchain", reason: "toolchain-mismatch" },
+      { fault: "corrupted", reason: "source-corrupted" },
+      { fault: "output", reason: "output-write-failed" },
+      { fault: "unexpected", reason: "unexpected-inspection-failure" },
+    ] as const
+    const temp = await mkdtemp(path.join(os.tmpdir(), "kilo-history-inspection-failure-"))
+    const priorPath = process.env.PATH
+    const priorOutput = process.env.GITHUB_OUTPUT
+    try {
+      for (const item of faults) {
+        const dir = path.join(temp, item.fault)
+        await mkdir(dir)
+        const target = path.join(dir, "archive")
+        const out = path.join(dir, "history.json")
+        process.env.PATH = await gitShim(dir, item.fault)
+        if (item.fault === "output") {
+          await mkdir(path.join(dir, "output"))
+          process.env.GITHUB_OUTPUT = path.join(dir, "output")
+        } else {
+          delete process.env.GITHUB_OUTPUT
+        }
+        if (item.fault === "unexpected") await Bun.write(target, "occupied")
+        const sha = checkpoints.at(-1)!.sha
+        const result = main(["inspect", sha, target, out])
+        await ("status" in item && item.status === "NOT_RUN" ? result : expect(result).rejects.toThrow(item.reason))
+        const value = await Bun.file(out).json()
+        expect(value.items).toEqual([
+          expect.objectContaining({
+            id: `history:${sha}`,
+            status: "status" in item ? item.status : "FAIL",
+            evidence: "evidence" in item ? item.evidence : "SOURCE_INSPECTION",
+            reason: item.reason,
+            source: { commit: sha },
+          }),
+        ])
+        expect(await Bun.file(out).text()).not.toMatch(/stdout|stderr|fatal|synthetic|token|secret/i)
+      }
+    } finally {
+      if (priorPath == null) delete process.env.PATH
+      else process.env.PATH = priorPath
+      if (priorOutput == null) delete process.env.GITHUB_OUTPUT
+      else process.env.GITHUB_OUTPUT = priorOutput
+      await rm(temp, { recursive: true, force: true })
+    }
+  })
+
+  test("artifact publication failure reports a stable code instead of an exception", async () => {
+    const temp = await mkdtemp(path.join(os.tmpdir(), "kilo-history-publication-failure-"))
+    try {
+      const target = path.join(temp, "occupied")
+      await Bun.write(target, "occupied")
+      const out = path.join(temp, "destination")
+      await mkdir(out)
+      const result = await capture([
+        process.execPath,
+        path.join(import.meta.dir, "history.ts"),
+        "inspect",
+        checkpoints.at(-1)!.sha,
+        target,
+        out,
+      ])
+      expect(result.code).toBe(1)
+      expect(result.stdout).toBe("")
+      expect(result.stderr.trim()).toBe("output-write-failed")
+    } finally {
+      await rm(temp, { recursive: true, force: true })
+    }
+  })
+
+  test("aggregation consumes the real history failure without adding a missing sentinel", async () => {
+    const temp = await mkdtemp(path.join(os.tmpdir(), "kilo-history-aggregate-failure-"))
+    try {
+      const sha = checkpoints.at(-1)!.sha
+      await save(path.join(temp, "history.json"), [
+        {
+          id: `history:${sha}`,
+          status: "FAIL",
+          evidence: "SOURCE_INSPECTION",
+          reason: "clone-failed",
+          source: { commit: sha },
+        },
+      ])
+      const result = await aggregate(temp, { [`history:${sha}`]: "success" })
+      expect(result).toContainEqual(
+        expect.objectContaining({ id: `history:${sha}`, status: "FAIL", reason: "clone-failed" }),
+      )
+      expect(result.some((item) => item.id === `missing:history:${sha}`)).toBe(false)
+    } finally {
+      await rm(temp, { recursive: true, force: true })
+    }
+  })
+
+  test("runtime output is restricted to version-shaped values", async () => {
+    const temp = await mkdtemp(path.join(os.tmpdir(), "kilo-history-runtime-output-"))
+    const priorPath = process.env.PATH
+    try {
+      const checkpoint = checkpoints.at(-1)!
+      const src = path.join(temp, "source")
+      const out = path.join(temp, "evidence.json")
+      await main(["inspect", checkpoint.sha, src, path.join(temp, "inspect.json")])
+      const bin = path.join(temp, "bin")
+      await mkdir(bin)
+      const bun = path.join(bin, "bun")
+      await Bun.write(
+        bun,
+        `#!/bin/sh\nif [ "$1" = --version ]; then printf 'SYNTHETIC_TOKEN_VALUE\\n'; exit 0; fi\nexec '${Bun.which("bun")}' "$@"\n`,
+      )
+      await chmod(bun, 0o700)
+      process.env.PATH = `${bin}${path.delimiter}${priorPath ?? ""}`
+      await expect(main(["run", checkpoint.sha, src, out])).rejects.toThrow("historical-runtime-audit-failed")
+      const value = await Bun.file(out).json()
+      expect(value.items[0].details.runtimes.bun).toBeNull()
+      expect(await Bun.file(out).text()).not.toContain("SYNTHETIC_TOKEN_VALUE")
+    } finally {
+      if (priorPath == null) delete process.env.PATH
+      else process.env.PATH = priorPath
       await rm(temp, { recursive: true, force: true })
     }
   })
@@ -221,7 +378,7 @@ describe("historical runtime checkpoints", () => {
       try {
         const checkpoint = fault === "runtime" ? checkpoints.at(0)! : checkpoints.at(-1)!
         const target = path.join(temp, "source")
-        await main(["inspect", checkpoint.sha, target])
+        await main(["inspect", checkpoint.sha, target, path.join(temp, "inspect.json")])
         if (fault === "sha") {
           const result = await capture(["git", "checkout", "-b", "wrong", "d050aa7662ba530fcf889b9b699036abb97bc86b"], {
             cwd: target,

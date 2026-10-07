@@ -38,6 +38,19 @@ test("qualification workflow keeps least privilege and uses standard hosted plat
     expect(workflow.jobs[id]?.strategy?.["fail-fast"]).toBe(false)
   }
   expect(workflow.jobs["historical-audit"]?.strategy?.matrix.sha).toEqual(checkpoints.map((item) => item.sha))
+  const audit = workflow.jobs["historical-audit"]!
+  const inspect = audit.steps.find((step) => step.run?.includes("history.ts inspect"))!
+  expect(inspect.run).toContain('"${{ runner.temp }}/history-${{ matrix.sha }}.json"')
+  expect(audit.steps.find((step) => step.uses?.startsWith("actions/upload-artifact@"))?.with?.path).toBe(
+    "${{ runner.temp }}/history-${{ matrix.sha }}.json",
+  )
+  expect(
+    audit.steps.find(
+      (step) =>
+        step.uses?.startsWith("oven-sh/setup-bun@") &&
+        step.with?.["bun-version"] === "${{ steps.inspect.outputs.bun-version }}",
+    )?.if,
+  ).toBe("steps.inspect.outputs.bun-version != ''")
   for (const job of Object.values(workflow.jobs)) {
     expect(["ubuntu-24.04", "${{ matrix.runner }}"]).toContain(job["runs-on"])
     expect(JSON.stringify(job)).not.toContain("continue-on-error")

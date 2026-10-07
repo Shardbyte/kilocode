@@ -75,6 +75,18 @@ export function classify(log: Audit): Item {
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..").replaceAll("\\", "/")
 const pin = (sha: string) => checkpoints.find((item) => item.sha === sha)
+const codes = [
+  "checkpoint-unavailable",
+  "git-probe-failed",
+  "clone-failed",
+  "checkout-failed",
+  "revision-mismatch",
+  "manifest-read-failed",
+  "toolchain-mismatch",
+  "source-corrupted",
+  "output-write-failed",
+  "unexpected-inspection-failure",
+] as const
 async function cmd(argv: string[], cwd: string, timeout = 600_000) {
   const result = await capture(argv, { cwd, timeout })
   if (result.timeout) throw new Error("historical-command-timeout")
@@ -173,56 +185,86 @@ function outFile() {
   return process.env.GITHUB_OUTPUT
 }
 
-async function inspect(sha: string, dir: string) {
+async function inspect(sha: string, dir: string, dest: string) {
   const item = pin(sha)
   if (!item) throw new Error("checkpoint-not-allowlisted")
   const target = path.resolve(dir)
-  if (target === root || target.startsWith(`${root}/`)) throw new Error("archive-target-inside-checkout")
-  if (existsSync(target)) throw new Error("archive-target-already-exists")
-  await mkdir(path.dirname(target), { recursive: true })
-  await mkdir(target, { recursive: true })
-  if (!(await available(sha))) {
-    await writeFile(
-      path.join(target, "inspected.json"),
-      JSON.stringify({ sha, status: "UNAVAILABLE", reason: "commit-unavailable" }, null, 2),
-    )
-    if (outFile()) {
-      const line = `bun-version=${item.bun}\nhistory-dir=${target}\n`
-      await writeFile(outFile()!, line, { flag: "a" })
+  const out = path.resolve(dest)
+  if (out === root || out.startsWith(`${root}/`)) throw new Error("evidence-inside-checkout")
+  const failure = async (code: string) => {
+    await save(out, [
+      {
+        id: `history:${sha}`,
+        status: "FAIL",
+        evidence: "SOURCE_INSPECTION",
+        reason: code,
+        source: { commit: sha },
+      },
+    ]).catch(() => {
+      throw new Error("output-write-failed")
+    })
+  }
+  let stage = "unexpected-inspection-failure"
+  try {
+    if (target === root || target.startsWith(`${root}/`)) throw new Error("archive-target-inside-checkout")
+    if (existsSync(target)) throw new Error("archive-target-already-exists")
+    await mkdir(path.dirname(target), { recursive: true })
+    await mkdir(target, { recursive: true })
+    stage = "git-probe-failed"
+    if (!(await available(sha))) {
+      stage = "output-write-failed"
+      await save(out, [
+        {
+          id: `history:${sha}`,
+          status: "NOT_RUN",
+          evidence: "NOT_RUN",
+          reason: "checkpoint-unavailable",
+          source: { commit: sha },
+        },
+      ])
+      if (outFile()) await writeFile(outFile()!, "bun-version=\nhistory-dir=\n", { flag: "a" })
+      return
     }
-    return
-  }
-  // Keep independent Git metadata: historical build tools query branch/version information.
-  if ((await cmd(["git", "clone", "--shared", "--no-checkout", root, target], root)) !== 0)
-    throw new Error("historical-checkout-clone-failed")
-  if ((await cmd(["git", "checkout", "-b", "qualification", sha], target)) !== 0)
-    throw new Error("historical-checkout-failed")
-  const checked = await output(["git", "rev-parse", "HEAD"], target)
-  if (checked.code !== 0 || checked.text !== sha) throw new Error("historical-checkout-revision-mismatch")
+    stage = "clone-failed"
+    // Keep independent Git metadata: historical build tools query branch/version information.
+    if ((await cmd(["git", "clone", "--shared", "--no-checkout", root, target], root)) !== 0) throw new Error()
+    stage = "checkout-failed"
+    if ((await cmd(["git", "checkout", "-b", "qualification", sha], target)) !== 0) throw new Error()
+    stage = "revision-mismatch"
+    const checked = await output(["git", "rev-parse", "HEAD"], target)
+    if (checked.code !== 0 || checked.text !== sha) throw new Error()
 
-  const pkg = JSON.parse(await readFile(path.join(target, "packages/opencode/package.json"), "utf8"))
-  const top = JSON.parse(await readFile(path.join(target, "package.json"), "utf8"))
-  const metadata = {
-    sha,
-    status: "INSPECTED",
-    expectedBun: item.bun,
-    sourceFormat: "isolated-git-checkout",
-    gitMetadata: true,
-    packageManager: top.packageManager ?? null,
-    cli: {
-      name: pkg.name,
-      version: pkg.version,
-      build: pkg.scripts?.build ?? null,
-      entry: "packages/opencode/src/index.ts",
-    },
-    buildScript: existsSync(path.join(target, "packages/opencode/script/build.ts")),
-    packageLock: existsSync(path.join(target, "bun.lock")) || existsSync(path.join(target, "bun.lockb")),
-  }
-  if (metadata.packageManager !== `bun@${item.bun}`) throw new Error("checkpoint-toolchain-mismatch")
-  await writeFile(path.join(target, "inspected.json"), JSON.stringify(metadata, null, 2))
-  if (outFile()) {
-    const line = `bun-version=${item.bun}\nhistory-dir=${target}\n`
-    await writeFile(outFile()!, line, { flag: "a" })
+    stage = "manifest-read-failed"
+    if (!existsSync(path.join(target, "packages/opencode/package.json"))) {
+      stage = "source-corrupted"
+      throw new Error()
+    }
+    const pkg = JSON.parse(await readFile(path.join(target, "packages/opencode/package.json"), "utf8"))
+    const top = JSON.parse(await readFile(path.join(target, "package.json"), "utf8"))
+    const metadata = {
+      sha,
+      status: "INSPECTED",
+      expectedBun: item.bun,
+      sourceFormat: "isolated-git-checkout",
+      gitMetadata: true,
+      packageManager: top.packageManager ?? null,
+      cli: {
+        name: pkg.name,
+        version: pkg.version,
+        build: pkg.scripts?.build ?? null,
+        entry: "packages/opencode/src/index.ts",
+      },
+      buildScript: existsSync(path.join(target, "packages/opencode/script/build.ts")),
+      packageLock: existsSync(path.join(target, "bun.lock")) || existsSync(path.join(target, "bun.lockb")),
+    }
+    stage = "toolchain-mismatch"
+    if (metadata.packageManager !== `bun@${item.bun}`) throw new Error()
+    stage = "output-write-failed"
+    await writeFile(path.join(target, "inspected.json"), JSON.stringify(metadata, null, 2))
+    if (outFile()) await writeFile(outFile()!, `bun-version=${item.bun}\nhistory-dir=${target}\n`, { flag: "a" })
+  } catch {
+    await failure(stage)
+    throw new Error(stage)
   }
 }
 
@@ -256,7 +298,7 @@ async function run(sha: string, dir: string, dest: string) {
       }
       if (!existsSync(pkg)) throw new Error("historical-source-corrupted")
       const bun = await output(["bun", "--version"], src)
-      log.runtimes.bun = bun.code === 0 ? bun.text : null
+      log.runtimes.bun = bun.code === 0 && /^\d+\.\d+\.\d+$/.test(bun.text) ? bun.text : null
       const revision = await output(["git", "rev-parse", "HEAD"], src)
       const manifest = JSON.parse(await readFile(path.join(src, "package.json"), "utf8"))
       if (
@@ -271,7 +313,7 @@ async function run(sha: string, dir: string, dest: string) {
         throw new Error("historical-source-corrupted")
       log.verified = true
       const node = await output(["node", "--version"], src)
-      log.runtimes.node = node.code === 0 ? node.text : null
+      log.runtimes.node = node.code === 0 && /^v?\d+\.\d+\.\d+$/.test(node.text) ? node.text : null
       const install = ["bun", "install", "--frozen-lockfile"]
       const installCode = await attempt(install, src, log)
       if (installCode === 0) {
@@ -341,14 +383,15 @@ async function run(sha: string, dir: string, dest: string) {
 
 export async function main(args = process.argv.slice(2)) {
   const [action, sha, dir, dest] = args
-  if (action === "inspect" && sha && dir) return inspect(sha, dir)
+  if (action === "inspect" && sha && dir && dest) return inspect(sha, dir, dest)
   if (action === "run" && sha && dir && dest) return run(sha, dir, dest)
-  throw new Error("usage: history.ts inspect <sha> <dir> | run <sha> <dir> <out>")
+  throw new Error("usage: history.ts inspect <sha> <dir> <out> | run <sha> <dir> <out>")
 }
 
 if (import.meta.main) {
   main().catch((err) => {
-    console.error(err instanceof Error ? err.name : "Error")
+    const message = err instanceof Error ? err.message : ""
+    console.error(codes.includes(message as (typeof codes)[number]) ? message : "qualification-failed")
     process.exitCode = 1
   })
 }

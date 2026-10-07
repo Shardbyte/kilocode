@@ -1,6 +1,8 @@
 import { mkdir } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import { stat } from "node:fs/promises"
 import path from "node:path"
+import { realpath } from "node:fs/promises"
 import { aggregate, capture, save, type Item } from "./evidence"
 import { clients, jetbrains, linux, portable, type Suite } from "./suites"
 
@@ -35,6 +37,75 @@ export function counts(text: string) {
     skipped: Number([...text.matchAll(/^\s*(\d+) skip\r?$/gm)].at(-1)?.at(1) ?? 0),
     assertions: Number([...text.matchAll(/^\s*(\d+) expect\(\) calls\r?$/gm)].at(-1)?.at(1) ?? 0),
   }
+}
+
+export async function diagnostic(text: string, root: string, cwd: string) {
+  const lines = text
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+  const failed: { file: string; name?: string; category: string }[] = []
+  const base = await realpath(root)
+  let file: string | undefined
+  let kind = "unknown-safe"
+  for (const line of lines) {
+    const head = /^\s*(.+\.(?:test|spec)\.[cm]?[jt]sx?):\s*$/.exec(line)
+    if (head) {
+      const value = head.at(1)!.replaceAll("\\", "/")
+      const drive = /^[A-Za-z]:\//.test(value)
+      const abs = drive && process.platform !== "win32" ? undefined : path.resolve(cwd, value)
+      const real = abs ? await realpath(abs).catch(() => undefined) : undefined
+      file =
+        real && (real === base || real.startsWith(base + path.sep))
+          ? path.relative(base, real).split(path.sep).join("/")
+          : undefined
+      kind = "unknown-safe"
+      continue
+    }
+    if (/^\s*error:\s*expect\s*\(/i.test(line)) kind = "assertion-failure"
+    if (/^\s*error:\s*(?:cannot find module|failed to resolve|unable to resolve|syntaxerror)/i.test(line))
+      kind = "test-runner-error"
+    if (
+      /^\s*error:/.test(line) &&
+      !/^\s*error:\s*(?:expect\s*\(|cannot find module|failed to resolve|unable to resolve|syntaxerror)/i.test(line)
+    )
+      kind = "unknown-safe"
+    const fail = /^\s*\(fail\)\s+(.+?)\s+\[\d+(?:\.\d+)?ms\]\s*$/.exec(line)
+    if (/^\s*\(pass\)/.test(line)) kind = "unknown-safe"
+    if (!fail || !file) continue
+    const source = await readFile(path.join(base, file), "utf8").catch(() => undefined)
+    if (!source) continue
+    const name = fail.at(1)!
+    const parts = name.split(" > ")
+    const leaf = parts.at(-1)!
+    const title = [`test("${leaf}"`, `test('${leaf}'`, `it("${leaf}"`, `it('${leaf}'`]
+    const scopes = parts
+      .slice(0, -1)
+      .every((part) => source.includes(`describe("${part}"`) || source.includes(`describe('${part}'`))
+    const unsafe =
+      name.length > 240 ||
+      /["'][^"'\r\n]+["']\s*:/.test(name) ||
+      /(?:secret|token|password|credential|authorization|bearer|synthetic|profile_[ab]|qualification-|invalid_grant|access_denied|server_error|provider[ _-]+(?:diagnostic|error|response|body)|account[ _-]*(?:id[ _-]*)?[:=]?\s*\d+|https?:\/\/|\/[A-Za-z0-9_.-]+(?:\/|$)|~[\\/]|[A-Z]:[\\/]|[\r\n\x00-\x1f\x7f-\x9f]|[^\s]+@[^\s]+|[A-Za-z0-9_-]{40,})/i.test(
+        name,
+      )
+    failed.push({
+      file,
+      ...(!unsafe && scopes && title.some((value) => source.includes(value)) ? { name } : {}),
+      category: kind,
+    })
+    kind = "unknown-safe"
+  }
+  return failed
+}
+
+export function category(result: { code: number; timeout: boolean } | undefined, text: string) {
+  if (!result) return "setup-failure"
+  if (result.timeout) return "timeout"
+  if (/^\s*error:\s*expect\s*\(/im.test(text)) return "assertion-failure"
+  if (/^\s*error:\s*(?:cannot find module|failed to resolve|unable to resolve|syntaxerror)/im.test(text))
+    return "test-runner-error"
+  if (result.code !== 0) return "process-exit"
+  return "unknown-safe"
 }
 
 export function xml(text: string) {
@@ -159,7 +230,22 @@ async function main() {
       commands: [suite.argv.map((arg) => (arg === process.execPath ? "bun" : arg))],
       exit: result?.code,
       duration: result?.duration,
-      details: { classification: suite.platform, ...count },
+      details: {
+        classification: suite.platform,
+        ...count,
+        ...(failed
+          ? {
+              diagnostic: {
+                category: category(result, result ? result.stdout + "\n" + result.stderr : ""),
+                timeout: result?.timeout ?? false,
+                failedTests:
+                  result && !gradle
+                    ? await diagnostic(result.stdout + "\n" + result.stderr, root, path.join(root, suite.cwd))
+                    : [],
+              },
+            }
+          : {}),
+      },
     })
     await save(out, items)
     console.log(`${suite.id}: ${failed ? "FAIL" : "PASS"}`)
@@ -167,4 +253,9 @@ async function main() {
   if (items.some((item) => item.status === "FAIL")) process.exitCode = 1
 }
 
-if (import.meta.main) await main()
+if (import.meta.main) {
+  await main().catch(() => {
+    console.error("qualification-runner-failed")
+    process.exitCode = 1
+  })
+}

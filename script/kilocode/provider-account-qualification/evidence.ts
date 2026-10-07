@@ -131,10 +131,19 @@ export async function capture(
   return { code, stdout, stderr, timeout: state.timeout, duration: Date.now() - start }
 }
 
-async function version(argv: string[]) {
+export async function version(argv: string[]) {
   const result = await capture(argv, { timeout: 10_000 }).catch(() => undefined)
   if (!result || result.code !== 0 || result.timeout) return "unavailable"
-  return (result.stdout || result.stderr).trim().split("\n").at(0)?.slice(0, 200) ?? "unavailable"
+  const line = (result.stdout || result.stderr).trim().split(/\r?\n/).at(0) ?? ""
+  const pattern =
+    argv.at(0) === "node"
+      ? /^v\d+\.\d+\.\d+$/
+      : argv.at(0) === "git"
+        ? /^git version \d+\.\d+\.\d+(?:\.windows\.\d+)?$/
+        : argv.at(0) === "java"
+          ? /^(?:openjdk|java) version "\d+(?:\.\d+){0,3}(?:-ea)?(?:\+\d+(?:[-.]\d+)*)?"(?: \d{4}-\d{2}-\d{2}(?: LTS)?)?$/
+          : undefined
+  return line.length <= 80 && pattern?.test(line) ? line : "unavailable"
 }
 
 export async function metadata() {
