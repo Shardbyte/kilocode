@@ -190,6 +190,54 @@ describe("qualification runner", () => {
     }
   })
 
+  test("failure recaps cannot duplicate identities or attach failures to the last file", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "qualification-recap-"))
+    try {
+      await Bun.write(path.join(root, "first.test.ts"), 'test("safe first failure", () => {})')
+      await Bun.write(path.join(root, "last.test.ts"), 'test("safe last pass", () => {})')
+      const text = [
+        "first.test.ts:",
+        "error: expect(value).toBe(expected)",
+        "(fail) safe first failure [1.00ms]",
+        "last.test.ts:",
+        "(pass) safe last pass [1.00ms]",
+        "1 test failed:",
+        "(fail) safe first failure [1.00ms]",
+        "1 pass",
+        "1 fail",
+      ].join("\n")
+      expect(await diagnostic(text, root, root)).toEqual([
+        { file: "first.test.ts", name: "safe first failure", category: "assertion-failure" },
+      ])
+      expect(counts(text)?.failed).toBe(1)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  test("actual multi-file Bun diagnostics retain each failure once under CI", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "qualification-ci-recap-"))
+    try {
+      for (const name of ["first", "last"]) {
+        await Bun.write(
+          path.join(root, `${name}.test.ts`),
+          `import { test, expect } from "bun:test"\ntest("safe ${name} failure", () => expect(1).toBe(2))\n` +
+            Array.from({ length: 60 }, (_, index) => `test("safe pass ${index}", () => {})`).join("\n"),
+        )
+      }
+      const result = await capture([process.execPath, "test", root], { cwd: root, env: { CI: "true" } })
+      expect(result.code).toBe(1)
+      const text = result.stdout + "\n" + result.stderr
+      expect(counts(text)?.failed).toBe(2)
+      const failed = await diagnostic(text, root, root)
+      expect(failed).toHaveLength(2)
+      expect(failed.map((item) => item.file).sort()).toEqual(["first.test.ts", "last.test.ts"])
+      expect(failed.every((item) => item.category === "assertion-failure")).toBe(true)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   test("parses JUnit totals and rejects missing or malformed totals", () => {
     expect(xml('<testsuite tests="5" failures="1" errors="1" skipped="1"></testsuite>')).toEqual({
       passed: 2,

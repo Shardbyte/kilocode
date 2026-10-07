@@ -49,6 +49,12 @@ export async function diagnostic(text: string, root: string, cwd: string) {
   let file: string | undefined
   let kind = "unknown-safe"
   for (const line of lines) {
+    // Bun's final failure recap has no file context and must not inherit the last file.
+    if (/^\s*\d+ (?:tests? failed:|pass|fail|skip)\s*$/.test(line)) {
+      file = undefined
+      kind = "unknown-safe"
+      continue
+    }
     const head = /^\s*(.+\.(?:test|spec)\.[cm]?[jt]sx?):\s*$/.exec(line)
     if (head) {
       const value = head.at(1)!.replaceAll("\\", "/")

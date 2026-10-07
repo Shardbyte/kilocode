@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { attempt, checkpoints, checkoutFailure, classify, main } from "./history"
+import { attempt, checkpoints, checkoutFailure, checkoutLfsFailure, classify, main } from "./history"
 import { aggregate, capture, save, type Item } from "./evidence"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -252,6 +252,12 @@ describe("historical runtime checkpoints", () => {
         "checkout-worktree-materialization-failed",
       )
       expect(checkoutFailure("private unrecognized diagnostic")).toBe("checkout-unclassified")
+      const lfs = "error: external filter 'git-lfs filter-process' failed: SYNTHETIC_TOKEN_VALUE"
+      expect(checkoutLfsFailure(lfs)).toBe(true)
+      expect(checkoutFailure(lfs)).toBe("checkout-worktree-materialization-failed")
+      expect(checkoutFailure(lfs)).not.toContain("SYNTHETIC_TOKEN_VALUE")
+      expect(checkoutLfsFailure(`${"x".repeat(65 * 1024)}${lfs}`)).toBe(false)
+      expect(checkoutFailure(`${"x".repeat(65 * 1024)}${lfs}`)).toBe("checkout-unclassified")
       expect(checkoutFailure(`${"x".repeat(65 * 1024)}fatal: unable to read tree (hidden)`)).toBe(
         "checkout-unclassified",
       )

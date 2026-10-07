@@ -93,6 +93,13 @@ const codes = [
   "checkout-unclassified",
 ] as const
 
+export function checkoutLfsFailure(text: string) {
+  const err = text.slice(0, 64 * 1024)
+  return /smudge filter lfs failed|external filter ['"]?git-lfs (?:filter-process|smudge)['"]? failed|git-lfs filter-process.*(?:failed|error|not found|does not exist)/i.test(
+    err,
+  )
+}
+
 export function checkoutFailure(text: string) {
   const err = text.slice(0, 64 * 1024)
   if (/detected dubious ownership in repository|unsafe repository/i.test(err))
@@ -105,6 +112,7 @@ export function checkoutFailure(text: string) {
     return "checkout-ref-unresolvable"
   if (/a branch named .* already exists|cannot lock ref .* is at .* but expected/i.test(err))
     return "checkout-branch-create-failed"
+  if (checkoutLfsFailure(err)) return "checkout-worktree-materialization-failed"
   if (
     /would be overwritten by checkout|untracked working tree files would be overwritten by checkout|unable to unlink .* during checkout/i.test(
       err,

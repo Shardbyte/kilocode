@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { checkoutFailure } from "./history"
+import { checkoutFailure, checkoutLfsFailure } from "./history"
 import { capture, environment, save, type Item } from "./evidence"
 
 export const sourceSha = "31bd901b96f349373a521e3bc2c958adc2f93c9c"
@@ -25,6 +25,32 @@ type Probe = {
   gitMetadata: boolean
   alternates: boolean
   failure: string | null
+  lfsFilterFailure?: boolean
+  initialExit?: number | null
+}
+
+type Prep = {
+  cloneExit: number | null
+  checkoutExit: number | null
+  refExists: boolean
+  headVerified: boolean
+  detached: boolean
+  fullHistory: boolean
+  gitMetadata: boolean
+  alternates: boolean
+  repositorySafetyFailure: boolean
+  materializationFailure: boolean
+  lfsFilterFailure: boolean
+  lfsProcessConfigured: boolean
+  lfsSmudgeConfigured: boolean
+  lfsRequiredConfigured: boolean
+  checkoutFailure: string | null
+  failure: string | null
+  controlAttempted: boolean
+  controlExit: number | null
+  controlFailure: string | null
+  controlHeadVerified: boolean
+  controlDetached: boolean
 }
 
 async function command(argv: string[], cwd: string) {
@@ -71,14 +97,18 @@ function item(probe: Probe, cleanup: boolean): Item {
     mismatch ||
     !probe.gitMetadata
   return {
-    id: `history-targeted:${probe.strategy}:${probe.sha}`,
+    id: probe.operation.startsWith("lfs-control-")
+      ? `history-targeted:lfs-control:${probe.strategy}:${probe.sha}`
+      : `history-targeted:${probe.strategy}:${probe.sha}`,
     status: failed || !cleanup ? "FAIL" : "PASS",
     evidence: "SOURCE_INSPECTION",
     reason: !cleanup
       ? "temporary-cleanup-failed"
       : failed
         ? (probe.failure ?? "git-operation-failed")
-        : "git-checkout-operation-observed; no historical build or availability conclusion",
+        : probe.operation.startsWith("lfs-control-")
+          ? "diagnostic-control-only; original-checkout-failure-preserved; no availability conclusion"
+          : "git-checkout-operation-observed; no historical build or availability conclusion",
     source: { commit: probe.sha },
     details: {
       stage: !cleanup ? "temporary-cleanup-failed" : (probe.failure ?? "completed"),
@@ -90,6 +120,43 @@ function item(probe: Probe, cleanup: boolean): Item {
       detached: probe.detached,
       gitMetadata: probe.gitMetadata,
       alternates: probe.alternates,
+      lfsFilterFailure: probe.lfsFilterFailure ?? false,
+      initialExit: probe.initialExit ?? null,
+      availability: null,
+    },
+  }
+}
+
+export function record(prep: Prep): Item | null {
+  if (!prep.failure) return null
+  return {
+    id: `history-targeted:source-preparation:${sourceSha}`,
+    status: "FAIL",
+    evidence: "SOURCE_INSPECTION",
+    reason: prep.failure,
+    source: { commit: sourceSha },
+    details: {
+      stage: prep.failure,
+      operation: "source-clone-and-detached-checkout",
+      cloneExit: prep.cloneExit,
+      exitCode: prep.checkoutExit,
+      refExists: prep.refExists,
+      headVerified: prep.headVerified,
+      detached: prep.detached,
+      fullHistory: prep.fullHistory,
+      gitMetadata: prep.gitMetadata,
+      alternates: prep.alternates,
+      repositorySafetyFailure: prep.repositorySafetyFailure,
+      materializationFailure: prep.materializationFailure,
+      lfsFilterFailure: prep.lfsFilterFailure,
+      lfsProcessConfigured: prep.lfsProcessConfigured,
+      lfsSmudgeConfigured: prep.lfsSmudgeConfigured,
+      lfsRequiredConfigured: prep.lfsRequiredConfigured,
+      controlAttempted: prep.controlAttempted,
+      controlExit: prep.controlExit,
+      controlFailure: prep.controlFailure,
+      controlHeadVerified: prep.controlHeadVerified,
+      controlDetached: prep.controlDetached,
       availability: null,
     },
   }
@@ -116,6 +183,29 @@ export async function main(args = process.argv.slice(2)) {
   let verified = false
   let full = false
   let version = "unavailable"
+  const prep: Prep = {
+    cloneExit: null as number | null,
+    checkoutExit: null as number | null,
+    refExists: false,
+    headVerified: false,
+    detached: false,
+    fullHistory: false,
+    gitMetadata: false,
+    alternates: false,
+    repositorySafetyFailure: false,
+    materializationFailure: false,
+    lfsFilterFailure: false,
+    lfsProcessConfigured: false,
+    lfsSmudgeConfigured: false,
+    lfsRequiredConfigured: false,
+    checkoutFailure: null as string | null,
+    failure: null as string | null,
+    controlAttempted: false,
+    controlExit: null as number | null,
+    controlFailure: null as string | null,
+    controlHeadVerified: false,
+    controlDetached: false,
+  }
   try {
     await mkdir(home, { recursive: true })
     await chmod(home, 0o700)
@@ -125,21 +215,72 @@ export async function main(args = process.argv.slice(2)) {
         ? git.stdout.trim()
         : "unavailable"
     const clone = await command(["git", "clone", "--no-checkout", root, src], root)
+    prep.cloneExit = clone.timeout ? null : clone.code
+    if (clone.code !== 0 || clone.timeout) prep.failure = "clone-failed"
     if (clone.code === 0 && !clone.timeout) {
       await chmod(src, 0o700)
+      const [proc, smudge, req] = await Promise.all([
+        command(["git", "config", "--get", "filter.lfs.process"], src),
+        command(["git", "config", "--get", "filter.lfs.smudge"], src),
+        command(["git", "config", "--get", "filter.lfs.required"], src),
+      ])
+      prep.lfsProcessConfigured = proc.code === 0 && !proc.timeout
+      prep.lfsSmudgeConfigured = smudge.code === 0 && !smudge.timeout
+      prep.lfsRequiredConfigured = req.code === 0 && !req.timeout
+      const ref = await command(["git", "cat-file", "-e", `${sourceSha}^{commit}`], src)
+      const gitDir = await command(["git", "rev-parse", "--git-dir"], src)
+      const alt = await command(["git", "rev-parse", "--git-path", "objects/info/alternates"], src)
+      prep.refExists = ref.code === 0 && !ref.timeout
+      prep.gitMetadata = gitDir.code === 0 && existsSync(path.resolve(src, gitDir.stdout.trim()))
+      prep.alternates = alt.code === 0 && existsSync(path.resolve(src, alt.stdout.trim()))
       const checkout = await command(["git", "checkout", "--detach", sourceSha], src)
+      prep.checkoutExit = checkout.timeout ? null : checkout.code
+      prep.lfsFilterFailure = checkoutLfsFailure(checkout.stderr)
+      const stage = checkout.code === 0 ? null : checkoutFailure(checkout.stderr)
+      prep.repositorySafetyFailure = stage === "checkout-repository-safety-failed"
+      prep.materializationFailure = stage === "checkout-worktree-materialization-failed"
+      prep.checkoutFailure = stage
+      if (stage) prep.failure = stage
       const head = await command(["git", "rev-parse", "HEAD"], src)
       const shallow = await command(["git", "rev-parse", "--is-shallow-repository"], src)
       const sym = await command(["git", "symbolic-ref", "-q", "HEAD"], src)
       full = shallow.code === 0 && shallow.stdout.trim() === "false" && !shallow.timeout
-      verified =
-        checkout.code === 0 &&
-        !checkout.timeout &&
-        head.code === 0 &&
-        !head.timeout &&
-        head.stdout.trim() === sourceSha &&
-        full &&
-        sym.code === 1
+      prep.fullHistory = full
+      prep.headVerified =
+        checkout.code === 0 && !checkout.timeout && head.code === 0 && !head.timeout && head.stdout.trim() === sourceSha
+      prep.detached = sym.code === 1 && !sym.timeout
+      verified = prep.headVerified && prep.detached && full
+      if (!verified && !prep.failure) prep.failure = "source-checkout-unverified"
+      if (!verified && prep.lfsFilterFailure) {
+        prep.controlAttempted = true
+        const control = await command(
+          [
+            "git",
+            "-c",
+            "filter.lfs.process=",
+            "-c",
+            "filter.lfs.smudge=",
+            "-c",
+            "filter.lfs.required=false",
+            "checkout",
+            "--detach",
+            sourceSha,
+          ],
+          src,
+        )
+        prep.controlExit = control.timeout ? null : control.code
+        prep.controlFailure = control.code === 0 ? null : checkoutFailure(control.stderr)
+        const controlHead = await command(["git", "rev-parse", "HEAD"], src)
+        const controlSym = await command(["git", "symbolic-ref", "-q", "HEAD"], src)
+        prep.controlHeadVerified =
+          control.code === 0 &&
+          !control.timeout &&
+          controlHead.code === 0 &&
+          !controlHead.timeout &&
+          controlHead.stdout.trim() === sourceSha
+        prep.controlDetached = controlSym.code === 1 && !controlSym.timeout
+        verified = prep.controlHeadVerified && prep.controlDetached && full
+      }
     }
     for (const sha of targets) {
       for (const strategy of strategies) {
@@ -216,17 +357,60 @@ export async function main(args = process.argv.slice(2)) {
         await chmod(dest, 0o700)
         const checked = await command(["git", "checkout", "-b", "qualification", sha], dest)
         const failed = checked.code !== 0 || checked.timeout ? checkoutFailure(checked.stderr) : null
-        probes.push(
-          await inspect(
-            dest,
-            sha,
-            strategy,
-            "checkout-new-qualification-branch",
-            checked.timeout ? null : checked.code,
-            cloned.code,
-            failed,
-          ),
+        const primary = await inspect(
+          dest,
+          sha,
+          strategy,
+          "checkout-new-qualification-branch",
+          checked.timeout ? null : checked.code,
+          cloned.code,
+          failed,
         )
+        primary.lfsFilterFailure = checkoutLfsFailure(checked.stderr)
+        probes.push(primary)
+        if (strategy !== "shared-clone" || !primary.lfsFilterFailure) continue
+        const ctrl = path.join(temp, `lfs-control-${sha}`)
+        const copy = await command(["git", "clone", "--shared", "--no-checkout", src, ctrl], src)
+        if (copy.code !== 0 || copy.timeout) {
+          probes.push({
+            ...primary,
+            operation: "lfs-control-clone",
+            exitCode: copy.timeout ? null : copy.code,
+            cloneExit: copy.timeout ? null : copy.code,
+            failure: "clone-failed",
+            initialExit: primary.exitCode,
+          })
+          continue
+        }
+        await chmod(ctrl, 0o700)
+        const diagnostic = await command(
+          [
+            "git",
+            "-c",
+            "filter.lfs.process=",
+            "-c",
+            "filter.lfs.smudge=",
+            "-c",
+            "filter.lfs.required=false",
+            "checkout",
+            "-b",
+            "qualification",
+            sha,
+          ],
+          ctrl,
+        )
+        const failure = diagnostic.code !== 0 || diagnostic.timeout ? checkoutFailure(diagnostic.stderr) : null
+        const check = await inspect(
+          ctrl,
+          sha,
+          strategy,
+          "lfs-control-checkout-new-qualification-branch",
+          diagnostic.timeout ? null : diagnostic.code,
+          copy.code,
+          failure,
+        )
+        check.initialExit = primary.exitCode
+        probes.push(check)
       }
     }
   } catch {
@@ -262,11 +446,25 @@ export async function main(args = process.argv.slice(2)) {
     })
     try {
       await mkdir(path.dirname(out), { recursive: true })
-      await save(
-        out,
-        probes.map((probe) => item(probe, cleanup)),
-        { gitVersion: version, sourceSha, sourceDetached: verified, sourceFullHistory: full, targetedOnly: true },
-      )
+      const source = record(prep)
+      const sourceItems = source ? [source] : []
+      await save(out, [...sourceItems, ...probes.map((probe) => item(probe, cleanup))], {
+        gitVersion: version,
+        sourceSha,
+        sourceDetached: prep.detached,
+        sourceFullHistory: full,
+        sourcePreparation: prep,
+        sourceControl: prep.lfsFilterFailure
+          ? {
+              attempted: prep.controlAttempted,
+              exitCode: prep.controlExit,
+              failure: prep.controlFailure,
+              headVerified: prep.controlHeadVerified,
+              detached: prep.controlDetached,
+            }
+          : null,
+        targetedOnly: true,
+      })
     } finally {
       await chmod(home, 0o700).catch(() => {
         cleanup = false
@@ -278,7 +476,9 @@ export async function main(args = process.argv.slice(2)) {
   }
   if (
     !cleanup ||
-    probes.length !== targets.length * strategies.length ||
+    prep.failure != null ||
+    probes.filter((probe) => !probe.operation.startsWith("lfs-control-")).length !==
+      targets.length * strategies.length ||
     probes.some((probe) => item(probe, cleanup).status !== "PASS")
   )
     process.exitCode = 1

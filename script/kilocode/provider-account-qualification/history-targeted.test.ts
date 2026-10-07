@@ -3,7 +3,7 @@ import { chmod, mkdtemp, mkdir, readdir, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { checkoutFailure } from "./history"
-import { main, sourceSha, strategies, targets } from "./history-targeted"
+import { main, record, sourceSha, strategies, targets } from "./history-targeted"
 
 async function git(argv: string[], cwd: string) {
   const proc = Bun.spawn(["git", ...argv], {
@@ -53,6 +53,53 @@ test("real Git failures classify to fixed codes without reflecting diagnostics",
   }
 })
 
+test("source preparation failure evidence keeps only bounded safe command facts", () => {
+  const entry = record({
+    cloneExit: 0,
+    checkoutExit: 128,
+    refExists: true,
+    headVerified: false,
+    detached: false,
+    fullHistory: true,
+    gitMetadata: true,
+    alternates: false,
+    repositorySafetyFailure: false,
+    materializationFailure: true,
+    lfsFilterFailure: true,
+    lfsProcessConfigured: true,
+    lfsSmudgeConfigured: true,
+    lfsRequiredConfigured: true,
+    checkoutFailure: "checkout-worktree-materialization-failed",
+    failure: "checkout-worktree-materialization-failed",
+    controlAttempted: true,
+    controlExit: 0,
+    controlFailure: null,
+    controlHeadVerified: true,
+    controlDetached: true,
+  })
+  expect(entry).toMatchObject({
+    status: "FAIL",
+    evidence: "SOURCE_INSPECTION",
+    reason: "checkout-worktree-materialization-failed",
+    details: {
+      operation: "source-clone-and-detached-checkout",
+      cloneExit: 0,
+      exitCode: 128,
+      refExists: true,
+      headVerified: false,
+      detached: false,
+      materializationFailure: true,
+      lfsFilterFailure: true,
+      controlAttempted: true,
+      controlExit: 0,
+      controlHeadVerified: true,
+      controlDetached: true,
+      availability: null,
+    },
+  })
+  expect(JSON.stringify(entry)).not.toMatch(/stderr|stdout|filter-process|secret|SYNTHETIC_TOKEN_VALUE/i)
+})
+
 test("hosted checkout probe writes only safe source-inspection operation evidence", async () => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "kilo-history-targeted-result-"))
   await chmod(temp, 0o700)
@@ -89,6 +136,25 @@ test("hosted checkout probe writes only safe source-inspection operation evidenc
     expect(report.sourceSha).toBe(sourceSha)
     expect(report.sourceDetached).toBe(true)
     expect(report.sourceFullHistory).toBe(true)
+    expect(report.sourcePreparation).toMatchObject({
+      cloneExit: 0,
+      checkoutExit: 0,
+      refExists: true,
+      headVerified: true,
+      detached: true,
+      fullHistory: true,
+      gitMetadata: true,
+      repositorySafetyFailure: false,
+      materializationFailure: false,
+      lfsFilterFailure: false,
+      failure: null,
+      controlAttempted: false,
+      controlExit: null,
+    })
+    expect(typeof report.sourcePreparation.lfsProcessConfigured).toBe("boolean")
+    expect(typeof report.sourcePreparation.lfsSmudgeConfigured).toBe("boolean")
+    expect(typeof report.sourcePreparation.lfsRequiredConfigured).toBe("boolean")
+    expect(report.sourceControl).toBeNull()
     expect(report.gitVersion).toMatch(/^git version \d+\.\d+\.\d+/)
     expect(text).not.toMatch(/stdout|stderr|fatal:|SYNTHETIC_TOKEN_VALUE|\/tmp\/|qualification-home-/i)
     expect((await readdir(temp)).sort()).toEqual(["history-targeted.json"])

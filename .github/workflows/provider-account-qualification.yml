@@ -52,12 +52,12 @@ jobs:
       - uses: ./.github/actions/setup-bun
         with:
           install-flags: --ignore-scripts
-      - name: Run only implicated Windows files
+      - name: Diagnose named Git fixtures with a private autocrlf control
         env:
           GITHUB_SHA: ${{ github.sha }}
           QUALIFICATION_RUNNER_OS: ${{ runner.os }}
           QUALIFICATION_RUNNER_ARCH: ${{ runner.arch }}
-        run: bun run script/kilocode/provider-account-qualification/targeted.ts windows "${{ runner.temp }}/targeted-windows.json"
+        run: bun run script/kilocode/provider-account-qualification/windows-probe.ts "${{ runner.temp }}/targeted-windows.json"
       - name: Publish safe diagnostics
         if: always()
         uses: actions/upload-artifact@v6

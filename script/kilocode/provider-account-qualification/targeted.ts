@@ -20,12 +20,13 @@ export function commands(platform: string) {
 }
 
 export function stage(text: string, code: number) {
+  text = text.slice(-64 * 1024)
   if (code === 0) return "completed"
   if (/dubious ownership|unsafe repository|safe\.directory/i.test(text)) return "repository-safety"
   if (/not a git repository|could not find.*git|git metadata|cannot find.*git directory/i.test(text))
     return "git-metadata"
   if (
-    /could not resolve|could not download|failed to download|connection (?:reset|timed out)|PKIX|SSLHandshake/i.test(
+    /could not resolve|could not download|failed to download|connection (?:reset|timed out)|read timed out|SocketTimeoutException|UnknownHostException|ConnectException|PKIX|SSLHandshake|server returned HTTP response code: [45]\d\d|HTTP [45]\d\d|HTTP response code: [45]\d\d/i.test(
       text,
     )
   )
@@ -34,9 +35,39 @@ export function stage(text: string, code: number) {
     return "gradle-configuration"
   if (/compilation (?:error|failed)|compileKotlin.*FAILED|compileTestKotlin.*FAILED/i.test(text)) return "compilation"
   if (/there were failing tests|\(fail\)|test.*FAILED/i.test(text)) return "test-execution"
+  if (/gradle build daemon disappeared|daemon.*(?:failed|disappeared)|unable to start the daemon/i.test(text))
+    return "gradle-daemon"
+  if (/no space left on device|outofmemoryerror|unable to create native thread|too many open files/i.test(text))
+    return "runner-resources"
+  if (/java\.io\.FileNotFoundException|java\.nio\.file\.NoSuchFileException/i.test(text)) return "missing-file"
+  if (/java\.io\.IOException|java\.net\.ProtocolException/i.test(text)) return "process-io"
+  if (/failed to (?:generate|parse).*openapi|generateOpenApiSpec.*FAILED|openApiGenerate.*FAILED/i.test(text))
+    return "openapi-generation"
+  if (/FAILURE: Build failed with an exception|BUILD FAILED/i.test(text)) return "gradle-build"
   if (/could not create the java virtual machine|java_home.*invalid|permission denied|cannot execute/i.test(text))
     return "process-start"
   return "unclassified"
+}
+
+export function tasks(text: string) {
+  const allowed = [
+    ":backend:generateOpenApiSpec",
+    ":backend:normalizeOpenApiSpec",
+    ":backend:openApiGenerate",
+    ":backend:fixGeneratedApi",
+    ":backend:writeCliChecksums",
+    ":backend:compileKotlin",
+    ":backend:compileTestKotlin",
+    ":backend:test",
+    ":frontend:compileKotlin",
+    ":frontend:compileTestKotlin",
+    ":frontend:test",
+    ":shared:compileKotlin",
+  ]
+  const failed = new Set(
+    [...text.slice(-64 * 1024).matchAll(/^> Task (:[A-Za-z:]+) FAILED\s*$/gm)].map((match) => match.at(1)),
+  )
+  return allowed.filter((name) => failed.has(name))
 }
 
 export async function main(args = process.argv.slice(2)) {
@@ -73,7 +104,9 @@ export async function main(args = process.argv.slice(2)) {
       exit: result?.code,
       details: {
         ...count,
-        ...(platform === "macos" ? { stage: result ? stage(text, result.code) : "process-start" } : {}),
+        ...(platform === "macos"
+          ? { stage: result ? stage(text, result.code) : "process-start", failedTasks: tasks(text) }
+          : {}),
         category: category(result, text),
         timeout: result?.timeout ?? false,
         failedTests: platform === "windows" ? await diagnostic(text, root, cwd) : [],

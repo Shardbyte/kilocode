@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { commands, stage } from "./targeted"
+import { commands, stage, tasks } from "./targeted"
 import path from "node:path"
 
 test("Windows diagnostics execute only three allowlisted files independently and together", () => {
@@ -33,10 +33,20 @@ test("process stages publish fixed codes rather than captured diagnostics", () =
     ["There were failing tests", "test-execution"],
     ["Could not create the Java virtual machine", "process-start"],
     ["unrecognized diagnostic", "unclassified"],
+    ["Server returned HTTP response code: 403", "dependency-download"],
+    ["Gradle build daemon disappeared", "gradle-daemon"],
+    ["No space left on device", "runner-resources"],
+    ["java.io.FileNotFoundException", "missing-file"],
+    ["java.io.IOException", "process-io"],
+    ["> Task :backend:generateOpenApiSpec FAILED", "openapi-generation"],
+    ["FAILURE: Build failed with an exception", "gradle-build"],
   ]) {
     expect(stage(text!, 1)).toBe(expected!)
   }
   expect(stage("unrecognized diagnostic", 0)).toBe("completed")
+  expect(tasks("> Task :backend:generateOpenApiSpec FAILED\n> Task :unknown:private FAILED")).toEqual([
+    ":backend:generateOpenApiSpec",
+  ])
 })
 
 test("diagnostic branch template has no full campaign or automatic trigger", async () => {
@@ -63,7 +73,9 @@ test("diagnostic branch template has no full campaign or automatic trigger", asy
     expect(job.steps.filter((step) => step.run).map((step) => step.run)).toEqual([
       platform === "history"
         ? 'bun run script/kilocode/provider-account-qualification/history-targeted.ts "${{ runner.temp }}/history-targeted.json"'
-        : `bun run script/kilocode/provider-account-qualification/targeted.ts ${platform} "\${{ runner.temp }}/targeted-${platform}.json"`,
+        : platform === "windows"
+          ? 'bun run script/kilocode/provider-account-qualification/windows-probe.ts "${{ runner.temp }}/targeted-windows.json"'
+          : `bun run script/kilocode/provider-account-qualification/targeted.ts ${platform} "\${{ runner.temp }}/targeted-${platform}.json"`,
     ])
     expect(job.steps.find((step) => step.uses?.startsWith("actions/checkout@"))?.with?.["persist-credentials"]).toBe(
       false,
