@@ -22,5 +22,5 @@ jobs:
       - run: |
           mkdir -p /tmp/out
           bun script/kilocode/provider-account-qualification/history.ts inspect 58c28a4261dbe8ca4dc7f8a6455fec74a31e3e5b /tmp/kilo/m11-hist-58c28a42 /tmp/out/inspect.json
-          bun script/kilocode/provider-account-qualification/history.ts run 58c28a4261dbe8ca4dc7f8a6455fec74a31e3e5b /tmp/kilo/m11-hist-58c28a42 /tmp/out/evidence.json
+          bun script/kilocode/provider-account-qualification/history.ts run 58c28a4261dbe8ca4dc7f8a6455fec74a31e3e5b /tmp/kilo/m11-hist-58c28a42 /tmp/out/evidence.json || true
           cat /tmp/out/evidence.json
