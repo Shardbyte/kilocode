@@ -512,7 +512,7 @@ describe("GitOps", () => {
         expect(result.ok).toBe(true)
 
         const content = await fs.readFile(nodePath.join(cwd, "a.txt"), "utf8")
-        expect(content).toBe("two\n")
+        expect(content.replaceAll("\r\n", "\n")).toBe("two\n")
       })
     })
 

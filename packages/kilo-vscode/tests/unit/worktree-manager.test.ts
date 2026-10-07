@@ -514,7 +514,18 @@ describe("WorktreeManager.createWorktree", () => {
     const result = await createManager(root).createWorktree({ branchName: "hook-failure" })
 
     expect(existsSync(result.path)).toBe(true)
-    expect((await simpleGit(root).raw(["worktree", "list", "--porcelain"])).includes(result.path)).toBe(true)
+    const canonical = async (dir: string) => {
+      const value = (await fs.realpath(dir)).replaceAll("\\", "/")
+      return process.platform === "win32" ? value.toLowerCase() : value
+    }
+    const raw = await simpleGit(root).raw(["worktree", "list", "--porcelain"])
+    const dirs = await Promise.all(
+      raw
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("worktree "))
+        .map((line) => canonical(line.slice("worktree ".length))),
+    )
+    expect(dirs).toContain(await canonical(result.path))
   })
 })
 

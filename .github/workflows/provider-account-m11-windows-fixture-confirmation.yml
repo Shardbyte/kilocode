@@ -1,0 +1,42 @@
+# kilocode_change - new file
+name: M11 bounded Windows fixture confirmation
+
+on:
+  push:
+    tags:
+      - "m11-windows-fixture-confirmation-*"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  m11-windows-fixture-confirmation:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+        with:
+          install-flags: --ignore-scripts
+      - name: Confirm complete corrected Windows test selections once
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          QUALIFICATION_RUNNER_OS: ${{ runner.os }}
+          QUALIFICATION_RUNNER_ARCH: ${{ runner.arch }}
+        run: bun run script/kilocode/provider-account-qualification/m11-windows-fixture-confirmation.ts "${{ runner.temp }}/m11-windows-fixture-confirmation.json"
+      - name: Publish bounded confirmation evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: m11-windows-fixture-confirmation-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/m11-windows-fixture-confirmation.json
+          if-no-files-found: error
+          retention-days: 30
