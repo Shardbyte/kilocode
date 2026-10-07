@@ -1,4 +1,5 @@
 import { expect, spyOn, test } from "bun:test"
+import path from "node:path"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { ModelV2 } from "@opencode-ai/core/model"
@@ -655,6 +656,48 @@ sessionGraph.instance(
   "commit-message utility generation failure logs the actual sanitized error line",
   () =>
     Effect.gen(function* () {
+      if (process.env.KILO_QUALIFICATION_LOG_CHILD !== "1") {
+        // The logger has no reversible sink API. Keep transport selection in a child,
+        // so earlier file-mode initialization and later tests retain their own state.
+        yield* Effect.promise(async () => {
+          const child = Bun.spawn(
+            [
+              process.execPath,
+              "test",
+              "test/kilocode/qualification/utility-inference.test.ts",
+              "--test-name-pattern",
+              "^commit-message utility generation failure logs the actual sanitized error line$",
+            ],
+            {
+              cwd: path.resolve(import.meta.dir, "../../.."),
+              env: { ...process.env, KILO_QUALIFICATION_LOG_CHILD: "1" },
+              stdin: "ignore",
+              stdout: "pipe",
+              stderr: "pipe",
+              windowsHide: true,
+              signal: AbortSignal.timeout(120_000),
+            },
+          )
+          const [out, err, code] = await Promise.all([
+            new Response(child.stdout).text(),
+            new Response(child.stderr).text(),
+            child.exited,
+          ])
+          expect(code).toBe(0)
+          expect(out + err).toMatch(/^\s*1 pass\s*$/m)
+          expect(out + err).toMatch(/^\s*0 fail\s*$/m)
+          for (const marker of [
+            "SECRET_ACCESS_A",
+            "SECRET_REFRESH_A",
+            "SECRET_PROVIDER_ERROR",
+            "SECRET_ENV_KEY",
+            "SECRET_AUTH_CONTENT",
+          ])
+            expect(out + err).not.toContain(marker)
+        })
+        return
+      }
+      yield* Effect.promise(() => import("@opencode-ai/core/util/log").then(({ Log }) => Log.init({ print: true })))
       const dir = yield* TestInstance
       const provider = yield* Provider.Service
       const item = yield* provider.getModel(ProviderV2.ID.openai, ModelV2.ID.make("gpt-5"))
@@ -715,6 +758,7 @@ sessionGraph.instance(
     git: true,
     init: (dir) => Effect.promise(() => Bun.write(`${dir}/change.ts`, "export const change = true\n")),
   },
+  130_000,
 )
 
 sessionGraph.instance("LLM dispatch stub admits explicit legacy control but never dispatches a resolved profile", () =>

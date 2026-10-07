@@ -920,3 +920,51 @@ Validation used `PATH=/tmp/kilo/bun-tooling/node_modules/.bin:$PATH`, Bun **1.4.
 - `bun run script/check-md-table-padding.ts`: **PASS**, 372 files; `git diff --check`: **PASS**.
 
 The managed LFS regression now proves that an ordinary checkout invokes a failing filter, the command-local override does not invoke it and materializes the committed pointer, configuration bytes remain unchanged, and a later ordinary checkout still fails. Shallow and dirty historical source fixtures fail before install/build commands are recorded. The real multi-file Bun subprocess has an explicit timeout and verifies that each genuine failure is retained only once, independently of recap/count lines.
+
+## Run 3 M10 Final Attribution And Qualification-Test Correction
+
+This append records the reviewed Linux attribution and the separately authorized qualification-test correction on canonical parent `f24e0fdda6c52440676c5c0964ef5dfab480a913`. Earlier Run 1, Run 2 and Run 3 evidence is not rewritten. Run 3 remains `47 PASS / 7 FAIL / 9 NOT_RUN`; these local controls are not Run 4 or a new full campaign.
+
+- Caller exact `AppRuntime.runPromise` total -> incidental instrumentation, not M10 invariant. The original assertion at `caller-failures.test.ts:79:33` expected 63; independently observed 67 includes fixture/setup/cleanup calls. Classification: **QUALIFICATION_HARNESS**.
+- Utility stderr capture -> inherited logger-transport dependency. The source-attested test `commit-message utility generation failure logs the actual sanitized error line` failed at `utility-inference.test.ts:700:28` when process-global file logging was active. The sanitized production record was persisted; explicit stderr transport restored the assertion. Classification: **QUALIFICATION_HARNESS**.
+- Product invariant violation -> **none demonstrated**. No Provider Account product implementation correction is made.
+
+### Correction Rationale
+
+The caller no longer asserts the aggregate runtime-call total or includes it in the asserted matrix type. The fixture retains that diagnostic-only field unchanged. To detect missing execution semantically, the test now asserts the exact six expected origins and exactly one result per expected origin for each caller. All original substantive checks remain: successful child exit, caller/output/access markers, 12 rows, six rows per caller, six origins, per-case request bounds, account-unavailable/closed results, 14 API failures, 20 attempts, one log control, six failure rows per caller, and absence of credential/provider markers.
+
+The utility test retains its title and original logging assertion body. Because the logger has no reversible sink API, the parent executes this one test in a bounded child Bun process with the same package preload and an anchored test-title selector. A test-only child sentinel prevents recursive spawning; only that child calls `Log.init({ print: true })`. The parent process's logging transport is never changed. Child stdout/stderr are captured in memory, not echoed or persisted; the parent checks exit 0, exactly one pass, zero failures, and marker absence. The original child assertions still prove real production generation failure, public error `Failed to generate commit message`, one generation call, `service=commit-message`, `generation failed`, and marker absence from both captured production logging and the public error. Process termination bounds the child transport lifetime. No production logger semantics or full-suite transport are changed.
+
+### Focused Local Validation
+
+Linux, Bun **1.4.2**, `CI=true`, cwd `packages/opencode`. Runtime tooling was installed only under `/tmp/kilo/bun-tooling`; repository dependencies and lockfiles were not changed. All controls used a bounded subprocess and safe count summaries; no raw assertion/provider/auth/environment dumps were retained.
+
+| Control (`bun test` arguments) | Passed | Failed | Skipped | Assertions |
+|---|---|---|---|---|
+| `test/kilocode/qualification/caller-failures.test.ts` | 1 | 0 | 0 | 32 |
+| `test/kilocode/qualification/utility-inference.test.ts` | 14 | 0 | 0 | 103 |
+| caller file, then utility file | 15 | 0 | 0 | 135 |
+| utility file, then caller file | 15 | 0 | 0 | 135 |
+| `test/kilocode/session-processor-network-offline.test.ts`, then utility file | 15 | 0 | 0 | 106 |
+| utility file, then network-offline file | 15 | 0 | 0 | 106 |
+| `test/kilocode/qualification` | 57 | 0 | 0 | 952 |
+| Exact unchanged Run 3 selected Linux invocation below | 137 | 0 | 0 | 1369 |
+
+```sh
+bun test test/kilocode/qualification test/kilocode/session-authority-qualification.test.ts test/kilocode/session-profile-error.test.ts test/kilocode/session-error-logs.test.ts test/kilocode/session-processor-network-offline.test.ts test/kilocode/provider/utility-authority-lifecycle.test.ts test/kilocode/provider/utility-account.test.ts test/kilocode/utility-runtime-authority.test.ts test/kilocode/enhance-prompt-authority.test.ts test/kilocode/commit-message-authority.test.ts test/kilocode/agent-generation-authority.test.ts test/kilocode/compaction-account-authority.test.ts test/kilocode/cli/utility-account.test.ts test/kilocode/branch-name.test.ts test/kilocode/session-title-generation.test.ts test/kilocode/memory/memory-ports.test.ts test/kilocode/memory/memory-integration.test.ts test/kilocode/task-profile-order.test.ts
+```
+
+The denominator remains **137 tests** (original reproduction: 135 passed plus two failed). No selected path/title/test was removed or added, skipped, excluded, or made conditional to obtain a passing campaign selection. The child name filter executes the logging assertion body in isolation; it does not filter the parent qualification suite. Bun's parent assertion recap does not include child assertions: the utility's original 16 logging assertions still execute in the child, while eight parent assertions verify child execution and marker absence. An independent child-body control confirms **1 passed / 0 failed / 0 skipped / 16 assertions**. Caller semantic checks add three assertions and remove one incidental assertion. Therefore the changed parent assertion total is not evidence of reduced security coverage.
+
+### Static Checks And Review State
+
+- Affected package `bun run typecheck`: **PASS**.
+- Scoped oxlint on the two changed test files: **0 errors, 2 existing unsafe JSON type-assertion warnings**.
+- Prettier check on both changed test files: **PASS**.
+- OpenCode annotation guard `--worktree`: **PASS**, no shared upstream source changed.
+- Markdown table guard: **PASS**, 372 files; `git diff --check`: **PASS**.
+- Qualification helpers, registered workflow, suite selection, production source, and caller fixture remain unchanged; helper tests are not affected.
+
+Changed repository files are only the two qualification tests and this append-only ledger. Canonical branch/HEAD remain `feat/provider-account-profiles` / `f24e0fdda6c52440676c5c0964ef5dfab480a913`; the regular index is empty, and these changes remain unstaged, uncommitted and unpushed. No qualification tag, hosted run, Run 4, M11 diagnosis, M12 work, or PR was created.
+
+Recommendation: **M10_READY_FOR_ACCEPTANCE_REVIEW** for this bounded correction; this is not automatic acceptance or resolution of other platform/historical/NOT_RUN evidence. Governance remains **M10 FAIL - CORRECTIVE WORK REQUIRED**, **M11 NOT ACCEPTED**, **M12 NOT AUTHORIZED** pending human review.

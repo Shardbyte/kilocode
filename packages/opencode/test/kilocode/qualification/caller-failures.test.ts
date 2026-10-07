@@ -41,6 +41,15 @@ test("Agent.generate and roll-call fail safely for real SDK errors and captured 
   expect(rows.filter((row) => row.caller === "Agent.generate")).toHaveLength(6)
   expect(rows.filter((row) => row.caller === "roll-call")).toHaveLength(6)
   expect(new Set(rows.map((row) => row.origin)).size).toBe(6)
+  const origins = ["quota-429", "service-503", "malformed-400", "timeout", "dns-nested-cause", "malformed-refresh"]
+  expect(new Set(rows.map((row) => row.origin))).toEqual(new Set(origins))
+  for (const caller of ["Agent.generate", "roll-call"])
+    expect(
+      rows
+        .filter((row) => row.caller === caller)
+        .map((row) => row.origin)
+        .sort(),
+    ).toEqual([...origins].sort())
   expect(rows.every((row) => row.requests >= 1 && row.requests <= 4)).toBe(true)
   expect(
     rows.filter((row) => row.caller === "Agent.generate").every((row) => row.result === "account-unavailable"),
@@ -68,7 +77,6 @@ test("Agent.generate and roll-call fail safely for real SDK errors and captured 
     logControls: number
     agentFailureRows: number
     rollCallFailureRows: number
-    appRuntimeRuns: number
   }
   expect(matrix.cases).toHaveLength(12)
   expect(matrix.apiFailures).toBe(14)
@@ -76,5 +84,4 @@ test("Agent.generate and roll-call fail safely for real SDK errors and captured 
   expect(matrix.logControls).toBe(1)
   expect(matrix.agentFailureRows).toBe(6)
   expect(matrix.rollCallFailureRows).toBe(6)
-  expect(matrix.appRuntimeRuns).toBe(63)
 }, 90_000)
