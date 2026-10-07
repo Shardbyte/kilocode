@@ -130,7 +130,7 @@ export function xml(text: string) {
   return total
 }
 
-async function junit(cwd: string, start: number) {
+export async function junit(cwd: string, start: number) {
   const total = { passed: 0, failed: 0, skipped: 0 }
   const state = { found: false }
   const combined = path.join(cwd, ".artifacts/unit/junit.xml")

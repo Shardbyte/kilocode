@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { attempt, checkpoints, classify, main } from "./history"
+import { attempt, checkpoints, checkoutFailure, classify, main } from "./history"
 import { aggregate, capture, save, type Item } from "./evidence"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -150,7 +150,7 @@ describe("historical runtime checkpoints", () => {
       { fault: "unavailable", reason: "checkpoint-unavailable", status: "NOT_RUN", evidence: "NOT_RUN" },
       { fault: "probe", reason: "git-probe-failed" },
       { fault: "clone", reason: "clone-failed" },
-      { fault: "checkout", reason: "checkout-failed" },
+      { fault: "checkout", reason: "checkout-unclassified" },
       { fault: "revision", reason: "revision-mismatch" },
       { fault: "manifest", reason: "manifest-read-failed" },
       { fault: "toolchain", reason: "toolchain-mismatch" },
@@ -195,6 +195,67 @@ describe("historical runtime checkpoints", () => {
       else process.env.PATH = priorPath
       if (priorOutput == null) delete process.env.GITHUB_OUTPUT
       else process.env.GITHUB_OUTPUT = priorOutput
+      await rm(temp, { recursive: true, force: true })
+    }
+  })
+
+  test("checkout diagnostics classify actual Git failures without exposing stderr", async () => {
+    const temp = await mkdtemp(path.join(os.tmpdir(), "kilo-history-git-classifier-"))
+    try {
+      const repo = path.join(temp, "repo")
+      await mkdir(repo)
+      for (const args of [
+        ["init", "-q", repo],
+        ["-C", repo, "commit", "--allow-empty", "-m", "base"],
+      ]) {
+        const proc = Bun.spawn(["git", ...args], {
+          cwd: temp,
+          stdout: "ignore",
+          stderr: "ignore",
+          env: {
+            ...process.env,
+            GIT_AUTHOR_NAME: "test",
+            GIT_AUTHOR_EMAIL: "test@example.invalid",
+            GIT_COMMITTER_NAME: "test",
+            GIT_COMMITTER_EMAIL: "test@example.invalid",
+          },
+        })
+        expect(await proc.exited).toBe(0)
+      }
+      const missing = Bun.spawn(
+        ["git", "-C", repo, "checkout", "-b", "qualification", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"],
+        { stdout: "ignore", stderr: "pipe" },
+      )
+      const miss = await new Response(missing.stderr).text()
+      expect(await missing.exited).not.toBe(0)
+      expect(checkoutFailure(miss)).toBe("checkout-ref-unresolvable")
+      const create = Bun.spawn(["git", "-C", repo, "checkout", "-b", "qualification", "HEAD"], {
+        stdout: "ignore",
+        stderr: "ignore",
+      })
+      expect(await create.exited).toBe(0)
+      const exists = Bun.spawn(["git", "-C", repo, "checkout", "-b", "qualification", "HEAD"], {
+        stdout: "ignore",
+        stderr: "pipe",
+      })
+      const already = await new Response(exists.stderr).text()
+      expect(await exists.exited).not.toBe(0)
+      expect(checkoutFailure(already)).toBe("checkout-branch-create-failed")
+      const poison = "fatal: a branch named 'qualification' already exists SYNTHETIC_TOKEN_VALUE"
+      expect(checkoutFailure(poison)).toBe("checkout-branch-create-failed")
+      expect(checkoutFailure(poison)).not.toContain("SYNTHETIC_TOKEN_VALUE")
+      expect(checkoutFailure("fatal: unable to read tree (deadbeef)")).toBe("checkout-ref-unresolvable")
+      expect(checkoutFailure("fatal: detected dubious ownership in repository at '/private/path'")).toBe(
+        "checkout-repository-safety-failed",
+      )
+      expect(checkoutFailure("The following untracked working tree files would be overwritten by checkout")).toBe(
+        "checkout-worktree-materialization-failed",
+      )
+      expect(checkoutFailure("private unrecognized diagnostic")).toBe("checkout-unclassified")
+      expect(checkoutFailure(`${"x".repeat(65 * 1024)}fatal: unable to read tree (hidden)`)).toBe(
+        "checkout-unclassified",
+      )
+    } finally {
       await rm(temp, { recursive: true, force: true })
     }
   })

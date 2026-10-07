@@ -86,7 +86,33 @@ const codes = [
   "source-corrupted",
   "output-write-failed",
   "unexpected-inspection-failure",
+  "checkout-ref-unresolvable",
+  "checkout-branch-create-failed",
+  "checkout-worktree-materialization-failed",
+  "checkout-repository-safety-failed",
+  "checkout-unclassified",
 ] as const
+
+export function checkoutFailure(text: string) {
+  const err = text.slice(0, 64 * 1024)
+  if (/detected dubious ownership in repository|unsafe repository/i.test(err))
+    return "checkout-repository-safety-failed"
+  if (
+    /unable to read tree|not a commit and a branch .* cannot be created from it|pathspec .* did not match any file/i.test(
+      err,
+    )
+  )
+    return "checkout-ref-unresolvable"
+  if (/a branch named .* already exists|cannot lock ref .* is at .* but expected/i.test(err))
+    return "checkout-branch-create-failed"
+  if (
+    /would be overwritten by checkout|untracked working tree files would be overwritten by checkout|unable to unlink .* during checkout/i.test(
+      err,
+    )
+  )
+    return "checkout-worktree-materialization-failed"
+  return "checkout-unclassified"
+}
 async function cmd(argv: string[], cwd: string, timeout = 600_000) {
   const result = await capture(argv, { cwd, timeout })
   if (result.timeout) throw new Error("historical-command-timeout")
@@ -227,9 +253,16 @@ async function inspect(sha: string, dir: string, dest: string) {
     }
     stage = "clone-failed"
     // Keep independent Git metadata: historical build tools query branch/version information.
-    if ((await cmd(["git", "clone", "--shared", "--no-checkout", root, target], root)) !== 0) throw new Error()
+    const clone = await capture(["git", "clone", "--shared", "--no-checkout", root, target], {
+      cwd: root,
+      timeout: 600_000,
+    })
+    if (clone.timeout) throw new Error("historical-command-timeout")
+    if (clone.code !== 0) throw new Error("clone-failed")
     stage = "checkout-failed"
-    if ((await cmd(["git", "checkout", "-b", "qualification", sha], target)) !== 0) throw new Error()
+    const checkout = await capture(["git", "checkout", "-b", "qualification", sha], { cwd: target, timeout: 600_000 })
+    if (checkout.timeout) throw new Error("historical-command-timeout")
+    if (checkout.code !== 0) throw new Error(checkoutFailure(checkout.stderr))
     stage = "revision-mismatch"
     const checked = await output(["git", "rev-parse", "HEAD"], target)
     if (checked.code !== 0 || checked.text !== sha) throw new Error()
@@ -262,9 +295,18 @@ async function inspect(sha: string, dir: string, dest: string) {
     stage = "output-write-failed"
     await writeFile(path.join(target, "inspected.json"), JSON.stringify(metadata, null, 2))
     if (outFile()) await writeFile(outFile()!, `bun-version=${item.bun}\nhistory-dir=${target}\n`, { flag: "a" })
-  } catch {
-    await failure(stage)
-    throw new Error(stage)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ""
+    const known = new Set([
+      "checkout-ref-unresolvable",
+      "checkout-branch-create-failed",
+      "checkout-worktree-materialization-failed",
+      "checkout-repository-safety-failed",
+      "checkout-unclassified",
+    ])
+    const reason = known.has(message) ? message : stage
+    await failure(reason)
+    throw new Error(reason)
   }
 }
 
