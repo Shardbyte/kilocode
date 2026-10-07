@@ -729,3 +729,194 @@ These results validate diagnostic safety/semantics only. They do not correct the
 The bounded Git-version-matched follow-up could not execute: Git **2.55.0** is not preinstalled, and this environment lacks `make` and a C compiler needed to build the official release. No release download, build, global installation or Git configuration change was performed. Consequently, no matched-version command result or first deterministic internal failure operation is established. Historical inspection root cause remains **UNRESOLVED**, rather than a guessed Git/platform defect. Diagnostic infrastructure is ready for human review; original failure attribution is explicitly incomplete. No hosted rerun or further qualification tag was created.
 
 Final local guards pass: workflow allowlist (**34 workflows**), OpenCode annotation check, markdown table padding (**372 files**) and `git diff --check`. HEAD, origin branch and the authorized tag remain `0c2be33f04712523e8f524a585f9e0e849eedd2f`; branch remains `feat/provider-account-profiles`. The index is empty; the worktree contains only the nine authorized diagnostic/workflow/test/plan modifications. No commits or pushes were made during diagnostic closure.
+
+## Run 2 Targeted Attribution
+
+This append-only record does not rewrite either campaign aggregate. Run 2 is `37552045709`, attempt **1**, qualification SHA `31bd901b96f349373a521e3bc2c958adc2f93c9c`: **40 PASS, 15 FAIL, 9 NOT_RUN**, **64 items**, `qualificationAccepted: false`. All 20 jobs completed naturally. Run 1 remains `37505370416`, SHA `0c2be33f04712523e8f524a585f9e0e849eedd2f`: **41 PASS, 13 FAIL, 9 NOT_RUN**. M10 remains **FAIL - CORRECTIVE WORK REQUIRED** and M11 **NOT ACCEPTED**; M12 is not begun.
+
+The user authorized targeted diagnostic tests, qualification-only helpers, checkout-harness diagnosis and this evidence-plan append. The user separately approved publishing a diagnostic-only branch and dispatching its targeted jobs. No product correction, assertion correction, authentication/routing/fallback change, full third campaign, qualification tag or PR is authorized or performed.
+
+### Immutable Run 2 Results
+
+| Surface | Run 1 | Run 2 |
+|---|---|---|
+| Windows VS Code | 264 passed, 2 failed | 264 passed, 2 failed |
+| macOS ARM64 VS Code | 266 passed, 1 failed, 1 skipped | 267 passed, 0 failed, 1 skipped |
+| Linux qualification | 135 passed, 2 failed | 135 passed, 2 failed |
+| macOS ARM64 JetBrains boundaries | PASS, 42 passed | FAIL, process exit 1 |
+| macOS ARM64 JetBrains typecheck | PASS | FAIL, process exit 1 |
+| Seven historical checkpoints | Missing-artifact failure sentinels | Published `history:<sha>` FAIL / SOURCE_INSPECTION, `checkout-failed` |
+
+Run 1 hosted failed-test names remain unknown. Counts alone cannot establish identical failures. Run 2 independently records the GitOps apply-patch and WorktreeManager post-checkout-hook titles, the caller failure title, an unnamed utility-inference assertion diagnostic and unnamed usage/commit-message fragments. The diagnostic list is not a distinct failed-test count: file context can be lost in Bun's final failure recap. Immutable Run 2 diagnostics are retained, not rewritten or promoted into additional test identities.
+
+macOS VS Code was not rerun for a third vote. Its change between campaigns remains a **PLATFORM_OR_ENVIRONMENT candidate**, not proof of a product defect.
+
+### Local Linux Diagnostics
+
+Commands below run from `packages/opencode` using Bun **1.4.2**, Linux x86_64, and the qualification `capture()` environment. No original assertion was changed.
+
+| Command | Exit | Passed / Failed | Assertions |
+|---|---|---|---|
+| `bun test test/kilocode/qualification/caller-failures.test.ts` | 1 | 0 / 1 | 30 |
+| `bun test test/kilocode/qualification/utility-inference.test.ts` | 0 | 14 / 0 | 111 |
+| `bun test test/kilocode/qualification/usage-security-api.test.ts` | 0 | 1 / 0 | 25 |
+| `bun test test/kilocode/qualification/caller-failures.test.ts test/kilocode/qualification/utility-inference.test.ts test/kilocode/qualification/usage-security-api.test.ts` | 1 | 15 / 1 | 166 |
+| `bun test test/kilocode/qualification/title-caller.test.ts test/kilocode/qualification/caller-failures.test.ts` | 1 | 1 / 1 | 45 |
+| `bun test test/kilocode/qualification/caller-matrix.test.ts test/kilocode/qualification/utility-inference.test.ts` | 0 | 18 / 0 | 145 |
+| `bun test test/kilocode/qualification/reauth-route.test.ts test/kilocode/qualification/usage-security-api.test.ts` | 0 | 2 / 0 | 40 |
+| All three predecessor/target pairs, preserving target argv order | 1 | 21 / 1 | 230 |
+
+The sole reproduced failure is `caller-failures.test.ts:79`, an exact internal `AppRuntime.runPromise` instrumentation-total assertion. The preceding behavior, process status, matrix and leakage assertions pass. Provisional local attribution: **QUALIFICATION_HARNESS**, instrumentation-count fragility. The specific environment difference remains **UNRESOLVED**; no failing assertion is corrected.
+
+An initial bare-Bun execution passed all three files (16 passed, zero failed), but did not match qualification capture's sanitized environment. It is a diagnostic control, not replacement campaign evidence. Varying `CI`, the file-watcher override and `TURBO_FORCE` independently did not remove the captured caller failure. Because it fails independently, a predecessor is not required for local reproduction. Utility inference and usage security pass both independently and with the selected immediate predecessors; their hosted attribution is not thereby resolved.
+
+The earlier local captured full-suite headers supplied candidate immediate predecessors, not hosted Run 2 order. The new combined local command actually discovered caller, usage, then utility despite the argv order. The six-file local header order was title-caller, caller-failures, reauth-route, usage-security-api, caller-matrix, utility-inference. Hosted Run 2 discovery order remains unavailable; no exact hosted-order reproduction is claimed.
+
+Provenance correction: `/tmp/kilo/linux-qualification-diagnostic/qualification.stderr.raw` belongs to an earlier **local** SHA `0c2be33f04712523e8f524a585f9e0e849eedd2f` diagnostic at `2026-10-06T18:21:47.856Z`, not hosted Run 2. An initial attribution to `utility-authority-lifecycle` from that log was unsupported and is withdrawn. New local raw captures are private under `/tmp/kilo/linux-targeted-attribution/`, directory mode `0700`, file mode `0600`; their assertion values and captured output are not reproduced here.
+
+### Historical Checkout Reproduction
+
+Local Git **2.47.3** used a non-shallow source checkout detached at `31bd901b96f349373a521e3bc2c958adc2f93c9c`. The exact sequence below succeeded for pre-profile `76bcfd40be616a72f4697b3041565f322245b462`, M8-M9 `34ceb6e9e2b35d3d5a7e2a5fa1f07be5c7529b12`, and qualification checkpoint `58c28a4261dbe8ca4dc7f8a6455fec74a31e3e5b`:
+
+```sh
+git clone --shared --no-checkout <detached-full-history-source> <owned-temp-target>
+git checkout -b qualification <historical-sha>
+```
+
+All clone and checkout operations exited **0**, resolved the requested commits and produced the expected HEAD with Git metadata. Normal local clones without `--shared` and detached worktrees also passed for the same three checkpoints: nine local operations total. Shared clones contained alternates; ordinary clones did not. Worktrees used normal linked Git metadata rather than an independent `.git` directory. No historical build, binary-version check, backend smoke or availability classification was run.
+
+Strategy evaluation: shared clones depend on the source object store remaining accessible and unpruned; ordinary local clones remove the alternates dependency but may hard-link objects unless explicitly told otherwise. Worktrees share source metadata and require Git-managed removal/pruning. All expose Git metadata to build tools, but no build-tool compatibility is inferred. Managed clones and source directories were removed; managed worktrees were removed and pruned. Private temporary parents were `0700`. The production inspection strategy is not switched merely because an alternative succeeds.
+
+The historical helper now emits bounded known-pattern codes: `checkout-ref-unresolvable`, `checkout-branch-create-failed`, `checkout-worktree-materialization-failed`, `checkout-repository-safety-failed`, or `checkout-unclassified`; clone failures retain `clone-failed`. Raw Git stderr is never serialized. Unknown checkout failure cannot establish checkpoint absence or source-only availability.
+
+### Hosted Targeted Execution 1
+
+The approved branch is `diagnostic/provider-account-run2-attribution`. Diagnostic commit `fd093a42da2eec3047c7bfa9f5112689faf45de1` has parent `31bd901b96f349373a521e3bc2c958adc2f93c9c` and only qualification helper/test/workflow changes. The local full-campaign workflow is unchanged. On the diagnostic branch alone, its registered path contains the disabled-template content: manual dispatch only, read-only contents permission, exactly Windows, macOS and historical-Git jobs. There is no push/tag trigger or full-suite job.
+
+Run **37557444919**, attempt **1**, event `workflow_dispatch`, started `2026-10-07T01:30:31Z` and reached terminal metadata at `2026-10-07T01:38:00Z`. All three jobs completed naturally with failure and uploaded all three safe JSON artifacts. Download location: `/tmp/kilo/provider-account-targeted-37557444919-attempt-1/`. Evidence binds the diagnostic commit and retains the original qualification SHA; it is not a third full qualification campaign.
+
+Windows **X64**, Bun **1.4.2**, Git **2.55.0.windows.5**:
+
+| Command from `packages/kilo-vscode` | Exit | Passed / Failed | Assertions |
+|---|---|---|---|
+| `bun test src/services/commit-message/__tests__/index.spec.ts --timeout 60000` | 0 | 14 / 0 | 23 |
+| `bun test tests/unit/worktree-manager.test.ts --timeout 60000` | 1 | 130 / 2 | 311 |
+| `bun test tests/unit/git-ops.test.ts --timeout 60000` | 1 | 53 / 1 | 87 |
+| `bun test src/services/commit-message/__tests__/index.spec.ts tests/unit/worktree-manager.test.ts tests/unit/git-ops.test.ts --timeout 60000` | 1 | 197 / 3 | 421 |
+
+The named apply-patch and hook-tolerance failures reproduce independently and together. The worktree file also has an unnamed failure. Failure recaps are duplicated and can be attached to the last file, so three unnamed commit-message fragments in the combined artifact do not establish three commit-message failures. The standalone commit-message run passes. No product-profile defect is inferred from suite membership. At this point the named Windows failures and unnamed worktree failure remain **UNRESOLVED** pending bounded Git/environment controls.
+
+macOS **ARM64**, Java **21**, Bun **1.4.2**: both original focused Gradle boundary and typecheck commands exited **1**, no timeout, no parsed failed-test names or executed JUnit counts. The first process-stage classifier returned `unclassified`. The targeted execution did not pass, so a transient/platform conclusion cannot be promoted from Run 1's PASS. Attribution remains **UNRESOLVED**; no JetBrains product code is changed.
+
+Ubuntu **X64**, Git **2.55.0**: the source-preparation check did not verify a detached qualification source, while confirming full history. All nine strategy items report `source-checkout-unverified`, with no individual operation executed. This is a diagnostic setup failure, not evidence that all nine historical operations failed or that any checkpoint is unavailable. A bounded source-stage probe is required before comparing strategies on the hosted runner.
+
+### Diagnostic Follow-Up Scope
+
+The remaining follow-up is limited to safe source-checkout facts, bounded Gradle task/stage classification, and controlled Windows Git fixture diagnostics. Git LFS attributes in this repository are a hypothesis to test against checkout materialization, not an established root cause. Any filter/config control is confined to a managed diagnostic checkout or private diagnostic HOME; it is not a production checkout-strategy or authentication change. The full Windows suite, macOS VS Code third-vote rerun and full qualification campaign remain excluded. Both immutable aggregates and all nine known GUI/CLI/crash NOT_RUN gaps remain unchanged.
+
+Controlled local Linux import-order diagnostics subsequently executed all six permutations of caller, utility and usage with a temporary wrapper importing the actual tests in sequence. Each registered 16 tests and returned **15 passed, 1 failed, 166 assertions, exit 1**; observed headers confirmed the selected import order. The caller instrumentation-total assertion was the sole failure in every permutation. Utility inference and usage security passed in every order. The caller fixture runs in a separate child process, so these parent import permutations cannot change its internal counter. This finds no order contamination among these three targets, but does not reconstruct the unavailable hosted discovery order or resolve the second hosted failure. The wrapper was removed; private `perm-1.raw` through `perm-6.raw` captures retain mode `0600`.
+
+### Hosted Diagnostic Follow-Ups
+
+Two bounded diagnostic follow-ups were published only on the approved diagnostic branch, not on the milestone branch. Neither is a full qualification campaign or a campaign retry; each new diagnostic SHA received one manual dispatch, attempt 1. No raw captured child output was uploaded.
+
+| Diagnostic Run | SHA | Scope | Result |
+|---|---|---|---|
+| `37559331746` | `e4f4c52094fbf304a601389e53896030c47125e4` | Windows Git controls, historical checkout stages, macOS focused boundaries/typecheck | Three job failures; two published artifacts, Windows publication failure |
+| `37560012231` | `f908f0183704772b2d858f7b399f15dee7f6a91a` | Corrected Windows private-HOME setup and historical checkout materialization control | Windows/history failed, macOS explicitly skipped; both expected artifacts published |
+
+Run `37559331746` started `2026-10-07T01:53:39Z` and terminal metadata was updated `2026-10-07T01:58:31Z`. The Windows helper attempted to stat its isolated HOME before creating it; no Windows JSON was published. This is **QUALIFICATION_HARNESS**, not an executed product result. The helper now creates its managed HOME first. Run `37560012231` started `2026-10-07T02:02:03Z`; its Windows artifact timestamp is `2026-10-07T02:08:06.754Z`. Both runs and the first targeted run remain preserved separately.
+
+The corrected parser now clears file context at Bun's final recap/count lines. A real multi-file subprocess regression and static recap fixture verify that summaries cannot duplicate failures or attach them to the last file. This diagnostic-only correction does not rewrite either campaign artifact or change any original failing test.
+
+#### Windows Final Controls
+
+| Final diagnostic command/condition | Exit | Passed / Failed | Interpretation |
+|---|---|---|---|
+| Apply-patch full-title anchored name filter, baseline | 1 | 0 / 0 | No executed-test evidence; invalid control |
+| Hook-tolerance full-title anchored name filter, baseline | 1 | 0 / 0 | No executed-test evidence; invalid control |
+| Worktree file, baseline | 1 | 131 / 1 | Named hook-tolerance assertion failure |
+| Apply-patch name filter, private HOME `autocrlf=false` | 1 | 0 / 0 | No executed-test evidence; invalid control |
+| Hook-tolerance name filter, private HOME `autocrlf=false` | 1 | 0 / 0 | No executed-test evidence; invalid control |
+| Worktree file, private HOME `autocrlf=false` | 1 | 130 / 2 | Named hook-tolerance assertion failure plus one unnamed failure |
+
+The full-file commands are `bun test tests/unit/worktree-manager.test.ts --timeout 60000`. The name-filter commands add `--test-name-pattern` with the anchored full displayed nested title. They return no execution evidence; their empty failure categories do not prove a test assertion or identify an autocrlf cause. The isolated private Git config is restored/removed in `finally`; no real HOME or product Git configuration is changed.
+
+GitOps apply-patch is reproducible in the first targeted file/combined execution, but the invalid filtered control cannot isolate its cause. Hook-tolerance is reproducible independently, combined, and in both final full-file conditions. The additional worktree failure varies between executions; its safe name is unavailable. Counts alone cannot attribute that variation to the config control. Commit-message passes independently; recap fragments do not prove failures in that file. Named Git/worktree failures and the additional unnamed failure remain **UNRESOLVED**, not product-profile defects. The zero-test filtered controls are **QUALIFICATION_HARNESS** diagnostic failures. No further hosted execution is performed to seek a favorable vote.
+
+#### Historical Final Controls
+
+Hosted Git **2.55.0** confirms a successful source clone (exit **0**), resolvable qualification commit, full history and Git metadata, with no repository-safety failure. The exact source checkout exits **128** with a bounded LFS-filter signature and fixed classification **`checkout-worktree-materialization-failed`**. A retry with filters disabled initially exited **1** after partial materialization. A subsequent forced retry confined to the owned temporary source succeeds (exit **0**), verifies HEAD at the qualification SHA and verifies detached state. The original failure remains recorded.
+
+After that source control, the original historical sequence runs for all three requested SHAs. Each shared clone exits **0**; `git checkout -b qualification <sha>` exits **128**, with the ref resolvable, Git metadata present, alternates present and LFS failure recognized. Each ordinary local clone also exits **0** and its checkout exits **128** with the same LFS signature, despite having no alternates. Thus `--shared` is **not** demonstrated to cause the failure.
+
+For each of the same three SHAs, a separate fresh shared-clone control uses per-command `filter.lfs.process=`, `filter.lfs.smudge=`, and `filter.lfs.required=false`; checkout exits **0**, creates the qualification branch and verifies the requested HEAD. The controlled clone still uses alternates. This establishes LFS-enabled worktree materialization as the failing stage in the sampled hosted reproduction, not branch creation, ref absence or alternates access. It does not establish the precise LFS download/authentication cause, and it is not a product or permanent harness-strategy correction. LFS pointer checkout is diagnostic source evidence, not a built historical executable.
+
+| Sampled SHA | Shared original | Ordinary clone original | Fresh shared LFS-disabled control | Worktree alternative |
+|---|---|---|---|---|
+| `76bcfd40be616a72f4697b3041565f322245b462` | Clone 0, checkout 128, LFS signature | Clone 0, checkout 128, LFS signature | Clone 0, checkout 0, expected HEAD | Exit 128; no verified checkout |
+| `34ceb6e9e2b35d3d5a7e2a5fa1f07be5c7529b12` | Clone 0, checkout 128, LFS signature | Clone 0, checkout 128, LFS signature | Clone 0, checkout 0, expected HEAD | Exit 128; no verified checkout |
+| `58c28a4261dbe8ca4dc7f8a6455fec74a31e3e5b` | Clone 0, checkout 128, LFS signature | Clone 0, checkout 128, LFS signature | Clone 0, checkout 0, expected HEAD | Exit 128; no verified checkout |
+
+The final historical artifact marks the strategy/control items **FAIL / SOURCE_INSPECTION**, `temporary-cleanup-failed`, because its aggregate cleanup flag failed. The separate operation fields preserve the exits and HEAD verification above. These successful control operations are not promoted to artifact PASS. Failed worktree attempts/removal are a diagnostic cleanup limitation; managed parent removal is attempted afterward, but hosted cleanup success is not claimed. No historical build tool, executable version, backend smoke or client compatibility was executed. Availability remains unknown for all seven campaign checkpoints. Provisional attribution for sampled checkout failures: **QUALIFICATION_HARNESS** / hosted LFS-materialization dependency, not historical product failure. The specific underlying LFS cause and unsampled checkpoint-specific causes remain **UNRESOLVED**.
+
+#### macOS JetBrains Stage
+
+The second targeted macOS ARM64 execution identifies **`openapi-generation`** for both focused tests and typecheck. Both exit **1**, with fixed allowlisted failed task names `:backend:generateOpenApiSpec` and `:backend:writeCliChecksums`, no timeout, no failed-test names, and no executed JUnit counts. These are prerequisite pipeline failures, not failing boundary assertions. The specific download/generation/checksum failure remains **UNRESOLVED**; build/platform infrastructure is a candidate, not a demonstrated transient. Run 1 PASS and Run 2 FAIL remain intact. The final two-job diagnostic explicitly skips macOS; no third JetBrains vote is taken.
+
+### Attribution Disposition
+
+No evidence-supported provider-profile product defect candidate is established. Local caller-count fragility and recap misattribution are qualification-harness findings; sampled historical LFS materialization is a qualification/environment finding; Windows named Git fixtures and macOS prerequisite failures retain the limits above. No product corrections have been made. All nine retained GUI/CLI/crash NOT_RUN items remain unchanged. M10 remains **FAIL - CORRECTIVE WORK REQUIRED** and M11 **NOT ACCEPTED**.
+
+### Final Validation And Repository State
+
+The final diagnostic run reached terminal metadata at `2026-10-07T02:08:11Z`; no additional hosted dispatch is performed. The invalid anchored Windows filters were corrected **locally only** to leaf-title matching, with a real nested Bun fixture verifying selection. That local diagnostic correction is not a hosted Windows result and is not pushed; both invalid hosted control records remain unchanged. Failed worktree cleanup remains explicitly recorded rather than silently promoted to success.
+
+- From `packages/opencode`: `bun test ../../script/kilocode/provider-account-qualification --timeout 60000`: **51 passed, 0 failed, 566 assertions across 10 files**.
+- `bunx --no-install tsgo --ignoreConfig --noEmit --target esnext --module preserve --moduleResolution bundler --types bun --skipLibCheck --strict script/kilocode/provider-account-qualification/*.ts`: **PASS**.
+- `bunx --no-install oxlint --quiet script/kilocode/provider-account-qualification`: **0 errors, 26 warnings**.
+- Prettier check of qualification helpers and explicit YAML parsing of the disabled template: **PASS**.
+- `bun run script/check-workflows.ts`: **PASS**, 34 workflows. The diagnostic template is inert locally; the registered campaign workflow remains unchanged locally.
+- `bun run script/check-opencode-annotations.ts --worktree`: **PASS**, no shared upstream source changes.
+- `bun run script/check-md-table-padding.ts`: **PASS**, 372 files; `git diff --check`: **PASS**.
+
+Validation used `PATH=/tmp/kilo/bun-tooling/node_modules/.bin:$PATH`, Bun 1.4.2. An initial root test command was rejected by the repository guard and was replaced with the package-scoped command; a diagnostic test type error was corrected before publication. No product package failure was fixed.
+
+All seven published targeted JSON artifacts across the three diagnostic runs were downloaded and inspected. Run 2 and Run 1 evidence directories and aggregates remain untouched. Targeted JSON metadata binds the respective diagnostic SHA/run/attempt and recorded OS/architecture; directories are `0700`, files `0600`. Structural review found no raw stdout/stderr, assertion actual/expected fields, stacks, HTTP body/headers, credential/auth-store payload, environment dump or synthetic-marker values. This bounded audit does not guarantee arbitrary secret recognition. The missing Windows artifact in the middle diagnostic remains a documented publication failure, not fabricated evidence.
+
+Branch remains `feat/provider-account-profiles`. Local HEAD, origin tracking branch and remote milestone branch remain `31bd901b96f349373a521e3bc2c958adc2f93c9c`; the regular index is empty. Only the approved diagnostic branch was committed/pushed, ending at `f908f0183704772b2d858f7b399f15dee7f6a91a`; its three commits are diagnostic-only. The evidence-plan append and local qualification helpers remain working-tree changes for review. There are no changes under `packages/` or to the local registered full-campaign workflow. Exactly the two original qualification tags remain unchanged locally/remotely: `provider-account-qualification-0c2be33` and `provider-account-qualification-31bd901`. No full campaign tag, product changes, authentication/routing/fallback changes, PR, acceptance or M12 work occurred.
+
+## Phase 1 Historical LFS Dependency Audit
+
+The read-only audit covered all seven allowlisted historical checkpoints using Git trees, `git check-attr --source=<sha>` and committed pointer blobs. No checkout, install, build, test, LFS download or hosted execution was performed. Start/end SHA-256 fingerprints of all twelve dirty files matched; the canonical branch, HEAD, index and diagnostic reference were unchanged.
+
+All checkpoints have identical LFS attributes: `*.gif`, `*.mp4`, the UI/VS Code test PNG patterns and the docs screenshot PNG pattern. Actual matches consist only of five MP4 outputs under `artifacts/glm52-rise-video/out/`, three GIFs under `packages/kilo-docs/public/`, and docs screenshot PNGs. The first five checkpoints have 461 screenshot PNGs, for 469 LFS paths; `f2ad10f5c6` and `58c28a4261` have 464, for 472 paths. Every matched Git blob is an LFS pointer. Between these groups three screenshots are added and one screenshot pointer changes; videos and GIFs are unchanged.
+
+The install lifecycle, CLI build, bundled Console/UI dependency chain, SDK inputs, version helper, backend startup and `/global/health` do not consume these payloads. The CLI build entrypoint is the same Git blob at all seven checkpoints (`cdb9eafa392e615c582bcb38f93200a7164740b2`). Actual media consumers are the separate Remotion render package, documentation and Playwright visual baselines. Pinned Bun is 1.3.14 for the first five checkpoints and 1.4.2 for the final two. External dependency downloads, model-snapshot generation and Linux build prerequisites remain independent build requirements; suppressing LFS does not establish an offline or bit-reproducible build.
+
+Decision: **LFS_NOT_REQUIRED_FOR_QUALIFIED_SURFACE**. This is a source-inspection-backed qualification-scope decision, not historical execution evidence. A future bounded historical checkout may retain committed pointers using command-local filter overrides. The repository would remain incomplete for docs media/visual-baseline use, but not for the audited CLI/backend availability surface. **LFS payload provenance is not established because payload bytes are intentionally not materialized.**
+
+The qualified claim remains exact pinned source and Bun, frozen install, successful CLI/backend build, observed executable version and healthy backend startup. No checkpoint is promoted to HISTORICAL_REBUILT or HISTORICAL_EXECUTABLE by this audit. Run 1 remains **41 PASS / 13 FAIL / 9 NOT_RUN**; Run 2 remains **40 PASS / 15 FAIL / 9 NOT_RUN**. All nine NOT_RUN gaps, `qualificationAccepted: false`, M10 **FAIL - CORRECTIVE WORK REQUIRED**, M11 **NOT ACCEPTED** and M12 **NOT AUTHORIZED** remain unchanged.
+
+## Phase 2 Canonical Harness Consolidation
+
+This correction is qualification-only: retain the safe Bun recap/file-context correction and historical checkout classifier, apply the reviewed command-local LFS checkout policy, strengthen pre-build provenance checks, and retain focused regression tests. The `junit` helper remains private to the full runner; the targeted-only export is not retained. Counts remain independent of safe diagnostic entry counts. No original product test assertion or Provider Account behavior is changed, and immutable campaign diagnostics are not regenerated.
+
+The historical checkout policy is limited to `git -c filter.lfs.process= -c filter.lfs.smudge= -c filter.lfs.required=false checkout -b qualification <sha>` in the owned historical clone. It does not persist configuration or suppress LFS for other commands. Committed pointer/source representation is retained; LFS payload provenance is not established. Successful checkout remains inspection only, not build/runtime availability evidence.
+
+The seven targeted-only untracked files were removed individually from the canonical working tree after preservation verification. The disabled workflow template and four `history-targeted`/`targeted` files matched their diagnostic-branch blobs exactly. The two newer local Windows leaf-selector corrections were saved byte-for-byte as `/tmp/kilo/phase2-preserved-windows-probe.ts` and `/tmp/kilo/phase2-preserved-windows-probe.test.ts`, with matching Git blob hashes `c47345501c1df448b18dc1b16902a49a63cc30d3` and `723816bd027258fea7a38892a14db41677894414`. The diagnostic branch remains at `f908f0183704772b2d858f7b399f15dee7f6a91a`. No branch merge, broad clean/reset or diagnostic-branch mutation was performed. The registered full-campaign workflow remains unchanged.
+
+Run 1 and Run 2 aggregates and artifacts remain immutable. No new hosted campaign, acceptance, compatibility claim, product correction or M12 work is authorized by this consolidation. The correction is left unstaged, uncommitted and unpushed for human review.
+
+### Phase 2 Local Validation
+
+Validation used `PATH=/tmp/kilo/bun-tooling/node_modules/.bin:$PATH`, Bun **1.4.2**. The repository forbids root `bun test`; the requested harness directory was tested from `packages/opencode` using the equivalent relative path. These are local harness regressions, not a new campaign or historical executable qualification.
+
+- `bun test ../../script/kilocode/provider-account-qualification --timeout 60000`: **41 passed, 0 failed, 461 assertions across 7 files**. Diagnostic-only test files are intentionally excluded from the canonical harness.
+- `bunx --no-install tsgo --ignoreConfig --noEmit --target esnext --module preserve --moduleResolution bundler --types bun --skipLibCheck --strict script/kilocode/provider-account-qualification/*.ts`: **PASS**. An initial check found two new fixture assertions using the wrong matcher message signature; both were corrected before the final test/typecheck passes.
+- `bunx --no-install oxlint --quiet script/kilocode/provider-account-qualification`: **0 errors, 24 warnings**. The scoped warnings include Bun async-matcher/type-assertion warnings and the intentionally sanitized rethrow without the original raw diagnostic cause; they are not represented as a warning-free result.
+- `bunx --no-install prettier --check script/kilocode/provider-account-qualification/history.ts script/kilocode/provider-account-qualification/history.test.ts script/kilocode/provider-account-qualification/run.ts script/kilocode/provider-account-qualification/run.test.ts`: **PASS**. Markdown remains excluded by repository policy and is checked by the table guard.
+- `bun run script/check-workflows.ts`: **PASS**, 34 workflows; `bun run script/check-opencode-annotations.ts --worktree`: **PASS**, no shared upstream source changes.
+- `bun run script/check-md-table-padding.ts`: **PASS**, 372 files; `git diff --check`: **PASS**.
+
+The managed LFS regression now proves that an ordinary checkout invokes a failing filter, the command-local override does not invoke it and materializes the committed pointer, configuration bytes remain unchanged, and a later ordinary checkout still fails. Shallow and dirty historical source fixtures fail before install/build commands are recorded. The real multi-file Bun subprocess has an explicit timeout and verifies that each genuine failure is retained only once, independently of recap/count lines.

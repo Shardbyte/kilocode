@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { attempt, checkpoints, classify, main } from "./history"
+import { attempt, checkpoints, checkout, checkoutFailure, checkoutLfsFailure, classify, main } from "./history"
 import { aggregate, capture, save, type Item } from "./evidence"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -41,11 +41,12 @@ fault='${fault}'
 if [ "$fault" = unavailable ] && [ "$1" = cat-file ]; then echo 'fatal: Not a valid object name missing^{commit}' >&2; exit 1; fi
 if [ "$fault" = probe ] && [ "$1" = cat-file ]; then echo 'fatal: synthetic probe failure' >&2; exit 1; fi
 if [ "$fault" = clone ] && [ "$1" = clone ]; then exit 1; fi
-if [ "$fault" = checkout ] && [ "$1" = checkout ]; then exit 1; fi
+if [ "$fault" = checkout ] && [ "$7" = checkout ]; then exit 1; fi
 if [ "$fault" = revision ] && [ "$1" = rev-parse ] && [ "$2" = HEAD ] && [ "$PWD" != '${root}' ]; then echo '0000000000000000000000000000000000000000'; exit 0; fi
 "$real" "$@"
 code=$?
-if [ "$code" -eq 0 ] && [ "$1" = checkout ]; then
+if [ "$7" = checkout ]; then is_checkout=1; else is_checkout=0; fi
+if [ "$code" -eq 0 ] && [ "$is_checkout" = 1 ]; then
   if [ "$fault" = manifest ]; then printf '{' > "$PWD/package.json"; fi
   if [ "$fault" = toolchain ]; then printf '{"packageManager":"bun@9.9.9"}' > "$PWD/package.json"; fi
   if [ "$fault" = corrupted ]; then rm -f "$PWD/packages/opencode/package.json"; fi
@@ -150,7 +151,7 @@ describe("historical runtime checkpoints", () => {
       { fault: "unavailable", reason: "checkpoint-unavailable", status: "NOT_RUN", evidence: "NOT_RUN" },
       { fault: "probe", reason: "git-probe-failed" },
       { fault: "clone", reason: "clone-failed" },
-      { fault: "checkout", reason: "checkout-failed" },
+      { fault: "checkout", reason: "checkout-unclassified" },
       { fault: "revision", reason: "revision-mismatch" },
       { fault: "manifest", reason: "manifest-read-failed" },
       { fault: "toolchain", reason: "toolchain-mismatch" },
@@ -195,6 +196,182 @@ describe("historical runtime checkpoints", () => {
       else process.env.PATH = priorPath
       if (priorOutput == null) delete process.env.GITHUB_OUTPUT
       else process.env.GITHUB_OUTPUT = priorOutput
+      await rm(temp, { recursive: true, force: true })
+    }
+  })
+
+  test("checkout diagnostics classify actual Git failures without exposing stderr", async () => {
+    const temp = await mkdtemp(path.join(os.tmpdir(), "kilo-history-git-classifier-"))
+    try {
+      const repo = path.join(temp, "repo")
+      await mkdir(repo)
+      for (const args of [
+        ["init", "-q", repo],
+        ["-C", repo, "commit", "--allow-empty", "-m", "base"],
+      ]) {
+        const proc = Bun.spawn(["git", ...args], {
+          cwd: temp,
+          stdout: "ignore",
+          stderr: "ignore",
+          env: {
+            ...process.env,
+            GIT_AUTHOR_NAME: "test",
+            GIT_AUTHOR_EMAIL: "test@example.invalid",
+            GIT_COMMITTER_NAME: "test",
+            GIT_COMMITTER_EMAIL: "test@example.invalid",
+          },
+        })
+        expect(await proc.exited).toBe(0)
+      }
+      const missing = Bun.spawn(
+        ["git", "-C", repo, "checkout", "-b", "qualification", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"],
+        { stdout: "ignore", stderr: "pipe" },
+      )
+      const miss = await new Response(missing.stderr).text()
+      expect(await missing.exited).not.toBe(0)
+      expect(checkoutFailure(miss)).toBe("checkout-ref-unresolvable")
+      const create = Bun.spawn(["git", "-C", repo, "checkout", "-b", "qualification", "HEAD"], {
+        stdout: "ignore",
+        stderr: "ignore",
+      })
+      expect(await create.exited).toBe(0)
+      const exists = Bun.spawn(["git", "-C", repo, "checkout", "-b", "qualification", "HEAD"], {
+        stdout: "ignore",
+        stderr: "pipe",
+      })
+      const already = await new Response(exists.stderr).text()
+      expect(await exists.exited).not.toBe(0)
+      expect(checkoutFailure(already)).toBe("checkout-branch-create-failed")
+      const poison = "fatal: a branch named 'qualification' already exists SYNTHETIC_TOKEN_VALUE"
+      expect(checkoutFailure(poison)).toBe("checkout-branch-create-failed")
+      expect(checkoutFailure(poison)).not.toContain("SYNTHETIC_TOKEN_VALUE")
+      expect(checkoutFailure("fatal: unable to read tree (deadbeef)")).toBe("checkout-ref-unresolvable")
+      expect(checkoutFailure("fatal: detected dubious ownership in repository at '/private/path'")).toBe(
+        "checkout-repository-safety-failed",
+      )
+      expect(checkoutFailure("The following untracked working tree files would be overwritten by checkout")).toBe(
+        "checkout-worktree-materialization-failed",
+      )
+      expect(checkoutFailure("private unrecognized diagnostic")).toBe("checkout-unclassified")
+      const lfs = "error: external filter 'git-lfs filter-process' failed: SYNTHETIC_TOKEN_VALUE"
+      expect(checkoutLfsFailure(lfs)).toBe(true)
+      expect(checkoutFailure(lfs)).toBe("checkout-worktree-materialization-failed")
+      expect(checkoutFailure(lfs)).not.toContain("SYNTHETIC_TOKEN_VALUE")
+      expect(checkoutLfsFailure(`${"x".repeat(65 * 1024)}${lfs}`)).toBe(false)
+      expect(checkoutFailure(`${"x".repeat(65 * 1024)}${lfs}`)).toBe("checkout-unclassified")
+      expect(checkoutFailure(`${"x".repeat(65 * 1024)}fatal: unable to read tree (hidden)`)).toBe(
+        "checkout-unclassified",
+      )
+    } finally {
+      await rm(temp, { recursive: true, force: true })
+    }
+  })
+
+  test("checkout scopes LFS bypass to the command and preserves pointer content and config", async () => {
+    const temp = await mkdtemp(path.join(os.tmpdir(), "kilo-history-lfs-"))
+    const prior = process.env.GIT_CONFIG_GLOBAL
+    const previous = process.env.HOME
+    try {
+      const repo = path.join(temp, "repo")
+      await mkdir(repo)
+      const run = async (args: string[]) => {
+        const proc = Bun.spawn(["git", ...args], {
+          cwd: repo,
+          env: {
+            ...process.env,
+            GIT_AUTHOR_NAME: "test",
+            GIT_AUTHOR_EMAIL: "test@example.invalid",
+            GIT_COMMITTER_NAME: "test",
+            GIT_COMMITTER_EMAIL: "test@example.invalid",
+          },
+          stdout: "ignore",
+          stderr: "pipe",
+        })
+        const err = await new Response(proc.stderr).text()
+        expect(await proc.exited, err).toBe(0)
+      }
+      await run(["init", "-q"])
+      await mkdir(path.join(repo, "packages/opencode"), { recursive: true })
+      await Bun.write(path.join(repo, "package.json"), '{"packageManager":"bun@1.4.2"}')
+      await Bun.write(path.join(repo, "packages/opencode/package.json"), '{"name":"@kilocode/cli","version":"1.0.0"}')
+      const pointer = `version https://git-lfs.github.com/spec/v1\noid sha256:${"0123456789abcdef".repeat(4)}\nsize 12\n`
+      await Bun.write(path.join(repo, "asset.bin"), pointer)
+      await Bun.write(path.join(repo, ".gitattributes"), "asset.bin filter=lfs diff=lfs merge=lfs -text\n")
+      await run(["add", "."])
+      await run(["commit", "-qm", "fixture"])
+      const sha = (await Bun.$`git rev-parse HEAD`.cwd(repo).text()).trim()
+      const work = path.join(temp, "work")
+      const clone = Bun.spawn(["git", "clone", "--no-checkout", repo, work], { stdout: "ignore", stderr: "pipe" })
+      const err = await new Response(clone.stderr).text()
+      expect(await clone.exited, err).toBe(0)
+      const cfg = async (key: string, val: string) => {
+        const proc = Bun.spawn(["git", "-C", work, "config", key, val], { stdout: "ignore", stderr: "pipe" })
+        expect(await proc.exited).toBe(0)
+      }
+      const mark = path.join(temp, "smudged")
+      const filter = path.join(temp, "smudge")
+      await Bun.write(filter, `#!/bin/sh\nprintf invoked > '${mark}'\nexit 1\n`)
+      await chmod(filter, 0o700)
+      await cfg("filter.lfs.process", filter)
+      await cfg("filter.lfs.smudge", "false")
+      await cfg("filter.lfs.clean", "cat")
+      await cfg("filter.lfs.required", "true")
+      const home = path.join(temp, "home")
+      await mkdir(home)
+      const global = path.join(home, ".gitconfig")
+      await Bun.write(
+        global,
+        '[filter "lfs"]\n\tprocess = false\n\tsmudge = false\n\tclean = cat\n\trequired = true\n[user]\n\tname = unchanged\n',
+      )
+      process.env.GIT_CONFIG_GLOBAL = global
+      process.env.HOME = home
+      const before = await readFile(global, "utf8")
+      const local = path.join(work, ".git/config")
+      const original = await readFile(local, "utf8")
+      const ordinary = Bun.spawn(["git", "checkout", "-b", "ordinary", sha], {
+        cwd: work,
+        env: { ...process.env, HOME: home, GIT_CONFIG_GLOBAL: global },
+        stdout: "ignore",
+        stderr: "pipe",
+      })
+      const message = await new Response(ordinary.stderr).text()
+      expect(await ordinary.exited).not.toBe(0)
+      expect(message).toMatch(/filter|smudge|process|remote end/i)
+      expect(await readFile(mark, "utf8")).toBe("invoked")
+      await rm(mark)
+      await rm(path.join(work, ".gitattributes"), { force: true })
+      const result = await checkout(work, sha)
+      expect(result.code, result.stderr).toBe(0)
+      expect(await Bun.file(mark).exists()).toBe(false)
+      expect(await readFile(path.join(work, "asset.bin"), "utf8")).toBe(pointer)
+      expect(await readFile(global, "utf8")).toBe(before)
+      expect(await readFile(local, "utf8")).toBe(original)
+      const config = await Bun.$`git config --local --list`.cwd(work).text()
+      expect(config).toContain(`filter.lfs.process=${filter}`)
+      expect(config).toContain("filter.lfs.smudge=false")
+      expect(config).toContain("filter.lfs.required=true")
+      const next = path.join(temp, "next")
+      const copy = Bun.spawn(["git", "clone", "--no-checkout", repo, next], { stdout: "ignore", stderr: "pipe" })
+      expect(await copy.exited).toBe(0)
+      const fail = Bun.spawn(["git", "-C", next, "config", "filter.lfs.process", filter], {
+        stdout: "ignore",
+        stderr: "ignore",
+      })
+      expect(await fail.exited).toBe(0)
+      const later = Bun.spawn(["git", "-C", next, "checkout", "-b", "later", sha], {
+        env: { ...process.env, HOME: home, GIT_CONFIG_GLOBAL: global },
+        stdout: "ignore",
+        stderr: "pipe",
+      })
+      const failure = await new Response(later.stderr).text()
+      expect(await later.exited).not.toBe(0)
+      expect(failure).toMatch(/filter|smudge|process|remote end/i)
+      expect(await readFile(mark, "utf8")).toBe("invoked")
+    } finally {
+      if (prior == null) delete process.env.GIT_CONFIG_GLOBAL
+      else process.env.GIT_CONFIG_GLOBAL = prior
+      if (previous == null) delete process.env.HOME
+      else process.env.HOME = previous
       await rm(temp, { recursive: true, force: true })
     }
   })
@@ -373,7 +550,7 @@ describe("historical runtime checkpoints", () => {
   })
 
   test("real audit CLI records SHA, manifest, runtime and unexpected failures and exits nonzero", async () => {
-    for (const fault of ["sha", "manifest", "runtime", "unexpected"]) {
+    for (const fault of ["sha", "manifest", "runtime", "unexpected", "shallow", "dirty"]) {
       const temp = await mkdtemp(path.join(os.tmpdir(), "kilo-history-integrity-"))
       try {
         const checkpoint = fault === "runtime" ? checkpoints.at(0)! : checkpoints.at(-1)!
@@ -391,6 +568,8 @@ describe("historical runtime checkpoints", () => {
           await Bun.write(file, JSON.stringify({ ...pkg, packageManager: "bun@9.9.9" }))
         }
         if (fault === "unexpected") await Bun.write(path.join(target, "package.json"), "invalid JSON")
+        if (fault === "shallow") await Bun.write(path.join(target, ".git/shallow"), `${checkpoint.sha}\n`)
+        if (fault === "dirty") await Bun.write(path.join(target, "README.md"), "dirty\n")
         const out = path.join(temp, "evidence.json")
         const result = await capture([
           process.execPath,
@@ -405,9 +584,15 @@ describe("historical runtime checkpoints", () => {
         expect(value.items.at(0)).toMatchObject({
           status: "FAIL",
           evidence: "SOURCE_INSPECTION",
-          reason: fault === "unexpected" ? "unexpected-audit-failure" : "historical-source-toolchain-mismatch",
+          reason:
+            fault === "unexpected"
+              ? "unexpected-audit-failure"
+              : fault === "shallow" || fault === "dirty"
+                ? "historical-source-corrupted"
+                : "historical-source-toolchain-mismatch",
         })
         expect(value.items.at(0).details.availability).toBeNull()
+        if (fault === "shallow" || fault === "dirty") expect(value.items.at(0).details.commandResults).toEqual([])
       } finally {
         await rm(temp, { recursive: true, force: true })
       }

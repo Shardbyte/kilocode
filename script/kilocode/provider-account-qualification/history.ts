@@ -86,7 +86,41 @@ const codes = [
   "source-corrupted",
   "output-write-failed",
   "unexpected-inspection-failure",
+  "checkout-ref-unresolvable",
+  "checkout-branch-create-failed",
+  "checkout-worktree-materialization-failed",
+  "checkout-repository-safety-failed",
+  "checkout-unclassified",
 ] as const
+
+export function checkoutLfsFailure(text: string) {
+  const err = text.slice(0, 64 * 1024)
+  return /smudge filter lfs failed|external filter ['"]?git-lfs (?:filter-process|smudge)['"]? failed|git-lfs filter-process.*(?:failed|error|not found|does not exist)/i.test(
+    err,
+  )
+}
+
+export function checkoutFailure(text: string) {
+  const err = text.slice(0, 64 * 1024)
+  if (/detected dubious ownership in repository|unsafe repository/i.test(err))
+    return "checkout-repository-safety-failed"
+  if (
+    /unable to read tree|not a commit and a branch .* cannot be created from it|pathspec .* did not match any file/i.test(
+      err,
+    )
+  )
+    return "checkout-ref-unresolvable"
+  if (/a branch named .* already exists|cannot lock ref .* is at .* but expected/i.test(err))
+    return "checkout-branch-create-failed"
+  if (checkoutLfsFailure(err)) return "checkout-worktree-materialization-failed"
+  if (
+    /would be overwritten by checkout|untracked working tree files would be overwritten by checkout|unable to unlink .* during checkout/i.test(
+      err,
+    )
+  )
+    return "checkout-worktree-materialization-failed"
+  return "checkout-unclassified"
+}
 async function cmd(argv: string[], cwd: string, timeout = 600_000) {
   const result = await capture(argv, { cwd, timeout })
   if (result.timeout) throw new Error("historical-command-timeout")
@@ -97,6 +131,32 @@ async function output(argv: string[], cwd: string) {
   const result = await capture(argv, { cwd, timeout: 10_000 })
   if (result.timeout) throw new Error("historical-command-timeout")
   return { text: (result.stdout || result.stderr).trim(), code: result.code }
+}
+
+async function repository(cwd: string) {
+  const result = await output(["git", "rev-parse", "--show-toplevel"], cwd)
+  return result.code === 0 && path.resolve(result.text) === path.resolve(cwd)
+}
+
+export async function checkout(cwd: string, sha: string) {
+  // LFS payloads are outside the qualified CLI/backend surface. Retain committed
+  // pointers for this checkout only; payload provenance is not established.
+  return capture(
+    [
+      "git",
+      "-c",
+      "filter.lfs.process=",
+      "-c",
+      "filter.lfs.smudge=",
+      "-c",
+      "filter.lfs.required=false",
+      "checkout",
+      "-b",
+      "qualification",
+      sha,
+    ],
+    { cwd, timeout: 600_000 },
+  )
 }
 
 export async function attempt(argv: string[], cwd: string, log: Audit) {
@@ -208,6 +268,9 @@ async function inspect(sha: string, dir: string, dest: string) {
   try {
     if (target === root || target.startsWith(`${root}/`)) throw new Error("archive-target-inside-checkout")
     if (existsSync(target)) throw new Error("archive-target-already-exists")
+    stage = "git-probe-failed"
+    const shallow = await output(["git", "rev-parse", "--is-shallow-repository"], root)
+    if (shallow.code !== 0 || shallow.text !== "false") throw new Error("git-probe-failed")
     await mkdir(path.dirname(target), { recursive: true })
     await mkdir(target, { recursive: true })
     stage = "git-probe-failed"
@@ -227,9 +290,17 @@ async function inspect(sha: string, dir: string, dest: string) {
     }
     stage = "clone-failed"
     // Keep independent Git metadata: historical build tools query branch/version information.
-    if ((await cmd(["git", "clone", "--shared", "--no-checkout", root, target], root)) !== 0) throw new Error()
+    const clone = await capture(["git", "clone", "--shared", "--no-checkout", root, target], {
+      cwd: root,
+      timeout: 600_000,
+    })
+    if (clone.timeout) throw new Error("historical-command-timeout")
+    if (clone.code !== 0) throw new Error("clone-failed")
     stage = "checkout-failed"
-    if ((await cmd(["git", "checkout", "-b", "qualification", sha], target)) !== 0) throw new Error()
+    const result = await checkout(target, sha)
+    if (result.timeout) throw new Error("historical-command-timeout")
+    if (result.code !== 0) throw new Error(checkoutFailure(result.stderr))
+    if (!(await repository(target))) throw new Error("checkout-repository-safety-failed")
     stage = "revision-mismatch"
     const checked = await output(["git", "rev-parse", "HEAD"], target)
     if (checked.code !== 0 || checked.text !== sha) throw new Error()
@@ -262,9 +333,19 @@ async function inspect(sha: string, dir: string, dest: string) {
     stage = "output-write-failed"
     await writeFile(path.join(target, "inspected.json"), JSON.stringify(metadata, null, 2))
     if (outFile()) await writeFile(outFile()!, `bun-version=${item.bun}\nhistory-dir=${target}\n`, { flag: "a" })
-  } catch {
-    await failure(stage)
-    throw new Error(stage)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ""
+    const known = new Set([
+      "checkout-ref-unresolvable",
+      "checkout-branch-create-failed",
+      "checkout-worktree-materialization-failed",
+      "checkout-repository-safety-failed",
+      "checkout-unclassified",
+    ])
+    const reason = known.has(message) ? message : stage
+    await failure(reason)
+    // Do not attach the original cause: it can contain unsanitized diagnostics.
+    throw new Error(reason)
   }
 }
 
@@ -297,6 +378,9 @@ async function run(sha: string, dir: string, dest: string) {
         return
       }
       if (!existsSync(pkg)) throw new Error("historical-source-corrupted")
+      if (!(await repository(src))) throw new Error("historical-source-corrupted")
+      const shallow = await output(["git", "rev-parse", "--is-shallow-repository"], src)
+      if (shallow.code !== 0 || shallow.text !== "false") throw new Error("historical-source-corrupted")
       const bun = await output(["bun", "--version"], src)
       log.runtimes.bun = bun.code === 0 && /^\d+\.\d+\.\d+$/.test(bun.text) ? bun.text : null
       const revision = await output(["git", "rev-parse", "HEAD"], src)
@@ -310,6 +394,8 @@ async function run(sha: string, dir: string, dest: string) {
       )
         throw new Error("historical-source-toolchain-mismatch")
       if ((await cmd(["git", "diff", "--quiet", "HEAD", "--"], src)) !== 0)
+        throw new Error("historical-source-corrupted")
+      if ((await cmd(["git", "diff", "--cached", "--quiet", "HEAD", "--"], src)) !== 0)
         throw new Error("historical-source-corrupted")
       log.verified = true
       const node = await output(["node", "--version"], src)
