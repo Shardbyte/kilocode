@@ -1,0 +1,43 @@
+# kilocode_change - new file
+name: M10 bounded Linux confirmation
+
+on:
+  push:
+    tags:
+      - "m10-linux-confirmation-*"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  m10-linux-confirmation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+        with:
+          install-flags: --ignore-scripts
+      - uses: ./.github/actions/setup-linux-sandbox
+      - name: Confirm unchanged Linux M10 selection once
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          QUALIFICATION_RUNNER_OS: ${{ runner.os }}
+          QUALIFICATION_RUNNER_ARCH: ${{ runner.arch }}
+        run: bun run script/kilocode/provider-account-qualification/m10-hosted-confirmation.ts "${{ runner.temp }}/m10-confirmation.json"
+      - name: Publish bounded confirmation evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: m10-linux-confirmation-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/m10-confirmation.json
+          if-no-files-found: error
+          retention-days: 30

@@ -47,6 +47,7 @@ const active = new Set([
   "nix-hashes.yml",
   "outdated-kilo-deps.yml",
   "prepare-jetbrains-release.yml",
+  "provider-account-m10-confirmation.yml",
   "provider-account-qualification.yml",
   "publish-jetbrains-bundled.yml",
   "publish-jetbrains.yml",
