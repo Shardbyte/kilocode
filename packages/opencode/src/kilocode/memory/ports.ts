@@ -1,5 +1,5 @@
 import { generateText, streamText } from "ai"
-import { Effect } from "effect"
+import { Cause, Effect, Exit } from "effect"
 import { MemoryConfig } from "@kilocode/kilo-memory/effect/config"
 import { MemoryError } from "@kilocode/kilo-memory/effect/errors"
 import type { MemoryPorts } from "@kilocode/kilo-memory/effect/ports"
@@ -17,7 +17,7 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { SessionID } from "@/session/schema"
 import { opencodeSessionHeaders } from "@/kilocode/provider/opencode-session-headers"
-import type { UtilityAccount } from "@/kilocode/provider/utility-account"
+import { UtilityAccount } from "@/kilocode/provider/utility-account"
 
 const log = Log.create({ service: "memory.ports" })
 
@@ -231,11 +231,16 @@ async function memoryText(input: {
 
 type ModelHandle = {
   source: Provider.Model
+  session: MemoryPorts.ModelRef
+  configured: boolean
   options: Record<string, unknown>
   temperature?: number
   topP?: number
   topK?: number
-  invocation?: { sessionID: string; authority: Promise<UtilityAccount.Identity> }
+  invocation?: {
+    sessionID: string
+    prepared: Promise<{ authority: UtilityAccount.Identity; language: LanguageModelV3 }>
+  }
 }
 
 // --- Ports -------------------------------------------------------------------------------------
@@ -294,35 +299,29 @@ export namespace MemoryModel {
       resolve: ({ configured, session }) =>
         Effect.gen(function* () {
           const parsed = MemoryConfig.parse(configured)
-          const sessionModel = () =>
-            input.provider.getModel(ProviderV2.ID.make(session.providerID), ModelV2.ID.make(session.modelID))
-          let reason: string | undefined
-          let source: Provider.Model
-          if (configured && !parsed) {
-            reason = "invalid model"
-            source = yield* sessionModel()
-          } else if (parsed) {
-            source = yield* input.provider
-              .getModel(ProviderV2.ID.make(parsed.providerID), ModelV2.ID.make(parsed.modelID))
-              .pipe(
-                Effect.catch(() =>
-                  Effect.sync(() => {
-                    reason = "model unavailable"
-                  }).pipe(Effect.flatMap(sessionModel)),
-                ),
-              )
-          } else {
-            source = yield* sessionModel()
-          }
-          if (reason) log.warn("memory model config ignored", { reason, model: configured })
-          const handle = {
+          const load = (ref: MemoryPorts.ModelRef) =>
+            input.provider.getModel(ProviderV2.ID.make(ref.providerID), ModelV2.ID.make(ref.modelID))
+          const build = (source: Provider.Model, configured: boolean) => ({
             source,
+            session,
+            configured,
             options: consolidationOptions(source),
             temperature: ProviderTransform.temperature(source),
             topP: ProviderTransform.topP(source),
             topK: ProviderTransform.topK(source),
+          })
+          const fallback = (reason: string) => {
+            log.warn("memory model config ignored", { reason })
+            return load(session).pipe(Effect.map((source) => ({ handle: build(source, false), fallback: { reason } })))
           }
-          return { handle, ...(reason ? { fallback: { reason } } : {}) }
+          if (configured && !parsed) return yield* fallback("invalid model")
+          if (!parsed) return { handle: build(yield* load(session), false) }
+          return yield* load(parsed).pipe(
+            Effect.map((source) => ({ handle: build(source, true) })),
+            Effect.catch((err) =>
+              Provider.ModelNotFoundError.isInstance(err) ? fallback("model unavailable") : Effect.fail(err),
+            ),
+          )
         }).pipe(Effect.mapError(MemoryError.from)),
       run: ({ handle, sessionID, system, prompt, timeoutMs, signal }) => {
         const resolved = handle as ModelHandle
@@ -330,16 +329,72 @@ export namespace MemoryModel {
           const { AppRuntime } = await import("@/effect/app-runtime")
           if (resolved.invocation && resolved.invocation.sessionID !== sessionID)
             throw new Error("The memory invocation does not match its source session")
-          resolved.invocation ??= { sessionID, authority: input.authority(resolved.source, sessionID) }
-          const authority = await resolved.invocation.authority
-          const language = await AppRuntime.runPromise(
-            input.provider.getLanguage(resolved.source, authority.mode === "profile" ? authority.profileID : undefined),
-          )
+          resolved.invocation ??= {
+            sessionID,
+            prepared: Promise.resolve().then(async () => {
+              const auth = await input.authority(resolved.source, sessionID)
+              if (
+                auth.sourceSessionID !== sessionID ||
+                auth.providerID !== resolved.source.providerID ||
+                auth.modelID !== resolved.source.id ||
+                (auth.mode === "profile" && resolved.source.api.npm !== "@ai-sdk/openai")
+              )
+                throw new UtilityAccount.Failure("context-mismatch")
+              const exit = await AppRuntime.runPromise(
+                Effect.exit(
+                  Effect.suspend(() =>
+                    input.provider.getLanguage(resolved.source, auth.mode === "profile" ? auth.profileID : undefined),
+                  ),
+                ),
+              )
+              if (Exit.isSuccess(exit)) return { authority: auth, language: exit.value }
+              const reasons = exit.cause.reasons
+              const reason = reasons.length === 1 ? reasons.at(0) : undefined
+              const missing =
+                reason && Cause.isFailReason(reason) && Provider.ModelNotFoundError.isInstance(reason.error)
+              const defect = reason && Cause.isDieReason(reason)
+              if (!resolved.configured || (!missing && !(defect && auth.mode === "legacy")))
+                throw Cause.squash(exit.cause)
+              const source = await AppRuntime.runPromise(
+                input.provider.getModel(
+                  ProviderV2.ID.make(resolved.session.providerID),
+                  ModelV2.ID.make(resolved.session.modelID),
+                ),
+              )
+              const next = await input.authority(source, sessionID)
+              if (
+                next.sourceSessionID !== sessionID ||
+                next.providerID !== source.providerID ||
+                next.modelID !== source.id ||
+                next.mode !== auth.mode ||
+                (auth.mode === "profile" && (next.mode !== "profile" || next.profileID !== auth.profileID)) ||
+                (next.mode === "profile" && source.api.npm !== "@ai-sdk/openai")
+              )
+                throw new UtilityAccount.Failure("context-mismatch")
+              const loaded = await AppRuntime.runPromise(
+                Effect.exit(
+                  Effect.suspend(() =>
+                    input.provider.getLanguage(source, next.mode === "profile" ? next.profileID : undefined),
+                  ),
+                ),
+              )
+              if (!Exit.isSuccess(loaded)) throw Cause.squash(loaded.cause)
+              log.warn("memory model config ignored", { reason: "model unavailable" })
+              resolved.source = source
+              resolved.configured = false
+              resolved.options = consolidationOptions(source)
+              resolved.temperature = ProviderTransform.temperature(source)
+              resolved.topP = ProviderTransform.topP(source)
+              resolved.topK = ProviderTransform.topK(source)
+              return { authority: next, language: loaded.value }
+            }),
+          }
+          const prepared = await resolved.invocation.prepared
           return memoryText({
             source: resolved.source,
-            language,
+            language: prepared.language,
             options:
-              authority.mode === "profile"
+              prepared.authority.mode === "profile"
                 ? { ...resolved.options, instructions: system, store: false }
                 : resolved.options,
             system,
@@ -356,6 +411,7 @@ export namespace MemoryModel {
             throw new DOMException("memory model timed out", "TimeoutError")
           if (err instanceof DOMException && err.name === "AbortError")
             throw new DOMException("memory model cancelled", "AbortError")
+          if (err instanceof UtilityAccount.Failure) throw err
           throw new Error("Memory utility generation failed")
         })
       },

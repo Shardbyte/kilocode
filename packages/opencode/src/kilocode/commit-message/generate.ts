@@ -254,7 +254,7 @@ export async function generateCommitMessage(request: CommitMessageRequest): Prom
 
     log.info("generated", { length: result.length })
     return { message: clean(result) }
-  } catch (err) {
+  } catch {
     if (controller.signal.aborted) {
       throw new Error("Commit message generation timed out after 30 seconds")
     }

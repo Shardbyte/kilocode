@@ -13,6 +13,16 @@ import type { SessionSummary } from "../../../src/session/summary"
 import type { Snapshot } from "../../../src/snapshot"
 import { MemoryModel, MemorySession } from "../../../src/kilocode/memory/ports"
 import type { UtilityAccount } from "../../../src/kilocode/provider/utility-account"
+import { MemoryTurn } from "../../../src/kilocode/memory/turn"
+import { installMemoryRuntime } from "../../../src/kilocode/memory/runtime"
+import { InstanceRef } from "../../../src/effect/instance-ref"
+import { KiloMemory } from "@kilocode/kilo-memory/effect"
+import { MemoryService } from "@kilocode/kilo-memory/effect/service"
+import { Global } from "@opencode-ai/core/global"
+import { AppRuntime } from "../../../src/effect/app-runtime"
+import { Session as SessionModule } from "../../../src/session/session"
+import path from "path"
+import { provideTestInstance, tmpdir } from "../../fixture/fixture"
 
 const pid = ProviderV2.ID.make("test")
 const mid = ModelV2.ID.make("fake-memory-model")
@@ -64,6 +74,27 @@ function lang(outputs: (string | Error)[] = ["{}"], calls?: unknown[], hang?: bo
         response: {},
       }
     },
+    doStream: async (...args: Parameters<LanguageModelV3["doStream"]>) => {
+      calls?.push(args[0])
+      const text = next()
+      return {
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: "stream-start", warnings: [] })
+            controller.enqueue({ type: "text-start", id: "memory" })
+            controller.enqueue({ type: "text-delta", id: "memory", delta: text })
+            controller.enqueue({ type: "text-end", id: "memory" })
+            controller.enqueue({
+              type: "finish",
+              finishReason: { unified: "stop" },
+              usage: { inputTokens: { total: 1 }, outputTokens: { total: 1 } },
+            })
+            controller.close()
+          },
+        }),
+        request: {},
+      }
+    },
   } as unknown as LanguageModelV3
 }
 
@@ -75,6 +106,7 @@ function provider(
     hang?: boolean
     npm?: string
     providerID?: ProviderV2.ID
+    broken?: Effect.Effect<never, ModelNotFoundError>
   } = {},
 ): Provider.Interface {
   const providerID = input.providerID ?? pid
@@ -98,6 +130,7 @@ function provider(
     },
     getLanguage: (model) => {
       input.seen?.push(model.id)
+      if (input.broken && model.id === mem.id) return input.broken
       return Effect.succeed(lang(input.outputs, input.calls, input.hang))
     },
     closest: () => Effect.succeed({ providerID: pid, modelID: base.id }),
@@ -306,10 +339,44 @@ describe("memory ports", () => {
 
     const configured = await Effect.runPromise(port.resolve({ configured: "test/memory-config-model", session: ref }))
     const fallback = await Effect.runPromise(port.resolve({ configured: "test/missing-memory-model", session: ref }))
+    const invalid = await Effect.runPromise(port.resolve({ configured: "memory-config-model", session: ref }))
 
     expect(configured.fallback).toBeUndefined()
     expect(fallback.fallback).toEqual({ reason: "model unavailable" })
+    expect(invalid.fallback).toEqual({ reason: "invalid model" })
     expect(seen).toEqual([])
+  })
+
+  test("known catalog fallback cannot fall back again when the session language is missing", async () => {
+    const seen: string[] = []
+    const auth: string[] = []
+    const port = MemoryModel.port({
+      provider: {
+        ...provider({}),
+        getLanguage: (model) => {
+          seen.push(model.id)
+          return Effect.fail(new ModelNotFoundError({ providerID: pid, modelID: model.id }))
+        },
+      },
+      authority: async (model, sessionID) => {
+        auth.push(`${sessionID}:${model.id}`)
+        return authority(model, sessionID)
+      },
+    })
+    const result = await Effect.runPromise(port.resolve({ configured: "test/missing-memory-model", session: ref }))
+
+    expect(result.fallback).toEqual({ reason: "model unavailable" })
+    await expect(
+      port.run({
+        handle: result.handle,
+        sessionID: "ses_catalog_fallback",
+        system: "system",
+        prompt: "prompt",
+        timeoutMs: 30_000,
+      }),
+    ).rejects.toThrow("Memory utility generation failed")
+    expect(seen).toEqual(["fake-memory-model"])
+    expect(auth).toEqual(["ses_catalog_fallback:fake-memory-model"])
   })
 
   test("model port resolves authority from the real source session before language acquisition", async () => {
@@ -340,6 +407,140 @@ describe("memory ports", () => {
     expect(order).toEqual(["authority:ses_source_memory", "language:fake-memory-model"])
   })
 
+  test("authority failure and source-context mismatch fail closed before language acquisition", async () => {
+    const seen: string[] = []
+    const deniedModels: string[] = []
+    const mismatched: string[] = []
+    const denied = MemoryModel.port({
+      provider: provider({ seen }),
+      authority: async (model) => {
+        deniedModels.push(model.id)
+        throw new Error("authority denied")
+      },
+    })
+    const mismatch = MemoryModel.port({
+      provider: provider({ seen }),
+      authority: async (model, sessionID) => {
+        mismatched.push(model.id)
+        return { ...(await authority(model, sessionID)), sourceSessionID: "ses_wrong" }
+      },
+    })
+    const deniedModel = await Effect.runPromise(
+      denied.resolve({ configured: "test/memory-config-model", session: ref }),
+    )
+    const mismatchModel = await Effect.runPromise(
+      mismatch.resolve({ configured: "test/memory-config-model", session: ref }),
+    )
+    const opts = {
+      sessionID: "ses_memory_guard",
+      system: "system",
+      prompt: "prompt",
+      timeoutMs: 30_000,
+    }
+
+    await expect(denied.run({ handle: deniedModel.handle, ...opts })).rejects.toThrow(
+      "Memory utility generation failed",
+    )
+    await expect(mismatch.run({ handle: mismatchModel.handle, ...opts })).rejects.toMatchObject({
+      name: "UtilityAccountError",
+      code: "context-mismatch",
+    })
+    expect(deniedModel.fallback).toBeUndefined()
+    expect(mismatchModel.fallback).toBeUndefined()
+    expect(seen).toEqual([])
+    expect(deniedModels).toEqual(["memory-config-model"])
+    expect(mismatched).toEqual(["memory-config-model"])
+  })
+
+  test("configured profile SDK defects do not fall back or use ambient credentials", async () => {
+    const seen: string[] = []
+    const calls: unknown[] = []
+    const auth: string[] = []
+    const port = MemoryModel.port({
+      provider: {
+        ...provider({ npm: "@ai-sdk/openai", providerID: ProviderV2.ID.make("openai"), calls }),
+        getLanguage: (model, profileID) => {
+          seen.push(`${model.id}:${profileID}`)
+          return Effect.die(new Error("profile SDK initialization failed"))
+        },
+      },
+      authority: async (model, sessionID) => {
+        auth.push(`${sessionID}:${model.id}`)
+        return { ...(await authority(model, sessionID)), mode: "profile", profileID: "selected-profile" }
+      },
+    })
+    const result = await Effect.runPromise(port.resolve({ configured: "openai/memory-config-model", session: ref }))
+
+    await expect(
+      port.run({
+        handle: result.handle,
+        sessionID: "ses_profile_defect",
+        system: "retained memory instructions",
+        prompt: "prompt",
+        timeoutMs: 30_000,
+      }),
+    ).rejects.toThrow("Memory utility generation failed")
+    expect(seen).toEqual(["memory-config-model:selected-profile"])
+    expect(auth).toEqual(["ses_profile_defect:memory-config-model"])
+    expect(calls).toEqual([])
+  })
+
+  test("configured outside-mode SDK defects fail closed without exposing provider errors", async () => {
+    const secret = "provider-secret-detail-must-not-escape"
+    const seen: string[] = []
+    const port = MemoryModel.port({
+      provider: {
+        ...provider({}),
+        getLanguage: (model) => {
+          seen.push(model.id)
+          return Effect.die(new Error(secret))
+        },
+      },
+      authority,
+    })
+    const result = await Effect.runPromise(port.resolve({ configured: "test/memory-config-model", session: ref }))
+    const failure = await port
+      .run({
+        handle: result.handle,
+        sessionID: "ses_outside_defect",
+        system: "system",
+        prompt: "prompt",
+        timeoutMs: 30_000,
+      })
+      .then(
+        () => "",
+        (err) => String(err),
+      )
+
+    expect(failure).toContain("Memory utility generation failed")
+    expect(failure).not.toContain(secret)
+    expect(seen).toEqual(["memory-config-model"])
+  })
+
+  test("profile preparation passes selected profile and preserves no-store instructions", async () => {
+    const calls: unknown[] = []
+    const port = MemoryModel.port({
+      provider: provider({ npm: "@ai-sdk/openai", providerID: ProviderV2.ID.make("openai"), calls }),
+      authority: async (model, sessionID) => ({
+        ...(await authority(model, sessionID)),
+        mode: "profile",
+        profileID: "selected-profile",
+      }),
+    })
+    const resolved = await Effect.runPromise(port.resolve({ session: ref }))
+
+    await port.run({
+      handle: resolved.handle,
+      sessionID: "ses_profile_options",
+      system: "retained memory instructions",
+      prompt: "prompt",
+      timeoutMs: 30_000,
+    })
+
+    const opts = calls[0] as { providerOptions?: Record<string, { store?: boolean; instructions?: string }> }
+    expect(opts.providerOptions?.openai).toMatchObject({ store: false, instructions: "retained memory instructions" })
+  })
+
   test("model port defers OpenAI language-model resolution until the source session is available", async () => {
     const seen: string[] = []
     const port = MemoryModel.port({
@@ -363,7 +564,7 @@ describe("memory ports", () => {
     let reads = 0
     const port = MemoryModel.port({
       provider: {
-        ...provider({}),
+        ...provider({ npm: "@ai-sdk/openai", providerID: ProviderV2.ID.make("openai") }),
         getLanguage: (_model, profileID) => {
           seen.push(profileID)
           return Effect.succeed(lang())
@@ -382,13 +583,191 @@ describe("memory ports", () => {
       prompt: "prompt",
       timeoutMs: 30_000,
     }
-    await port.run(input)
+    await Promise.all([port.run(input), port.run(input)])
     selected = "account-B"
     await port.run(input)
     expect(reads).toBe(1)
-    expect(seen).toEqual(["account-A", "account-A"])
+    expect(seen).toEqual(["account-A"])
     await expect(port.run({ ...input, sessionID: "ses_other" })).rejects.toThrow("Memory utility generation failed")
-    expect(seen).toHaveLength(2)
+    expect(seen).toHaveLength(1)
+  })
+
+  test("concurrent typed fallback stages share one source and profile snapshot", async () => {
+    const auth: string[] = []
+    const seen: string[] = []
+    let profile = "profile-A"
+    const port = MemoryModel.port({
+      provider: {
+        ...provider({ npm: "@ai-sdk/openai", providerID: ProviderV2.ID.make("openai") }),
+        getLanguage: (model, profileID) => {
+          seen.push(`${model.id}:${profileID}`)
+          if (model.id === "memory-config-model")
+            return Effect.fail(
+              new ModelNotFoundError({
+                providerID: ProviderV2.ID.make("openai"),
+                modelID: ModelV2.ID.make(model.id),
+              }),
+            )
+          return Effect.succeed(lang())
+        },
+      },
+      authority: async (model, sessionID) => {
+        auth.push(`${sessionID}:${model.id}`)
+        return { ...(await authority(model, sessionID)), mode: "profile", profileID: profile }
+      },
+    })
+    const resolved = await Effect.runPromise(port.resolve({ configured: "openai/memory-config-model", session: ref }))
+    const input = {
+      handle: resolved.handle,
+      sessionID: "ses_typed_fallback_snapshot",
+      system: "system",
+      prompt: "prompt",
+      timeoutMs: 30_000,
+    }
+
+    await Promise.all([port.run(input), port.run(input)])
+    profile = "profile-B"
+    await port.run(input)
+
+    expect(auth).toEqual([
+      "ses_typed_fallback_snapshot:memory-config-model",
+      "ses_typed_fallback_snapshot:fake-memory-model",
+    ])
+    expect(seen).toEqual(["memory-config-model:profile-A", "fake-memory-model:profile-A"])
+  })
+
+  test("typed fallback rejects authority mode or profile changes", async () => {
+    for (const change of ["legacy", "outside", "profile-B"] as const) {
+      const auth: string[] = []
+      const seen: string[] = []
+      let reads = 0
+      const port = MemoryModel.port({
+        provider: {
+          ...provider({ npm: "@ai-sdk/openai", providerID: ProviderV2.ID.make("openai") }),
+          getLanguage: (model, profileID) => {
+            seen.push(`${model.id}:${profileID}`)
+            return Effect.fail(
+              new ModelNotFoundError({
+                providerID: ProviderV2.ID.make("openai"),
+                modelID: ModelV2.ID.make(model.id),
+              }),
+            )
+          },
+        },
+        authority: async (model, sessionID): Promise<UtilityAccount.Identity> => {
+          auth.push(`${sessionID}:${model.id}`)
+          reads++
+          const base = await authority(model, sessionID)
+          if (reads === 1) return { ...base, mode: "profile", profileID: "profile-A" }
+          if (change === "profile-B") return { ...base, mode: "profile", profileID: "profile-B" }
+          return { ...base, mode: change }
+        },
+      })
+      const resolved = await Effect.runPromise(port.resolve({ configured: "openai/memory-config-model", session: ref }))
+      const failure = await port
+        .run({
+          handle: resolved.handle,
+          sessionID: `ses_typed_mismatch_${change}`,
+          system: "system",
+          prompt: "prompt",
+          timeoutMs: 30_000,
+        })
+        .then(
+          () => undefined,
+          (err) => err,
+        )
+
+      expect(failure).toMatchObject({ name: "UtilityAccountError", code: "context-mismatch" })
+      expect(auth).toEqual([
+        `ses_typed_mismatch_${change}:memory-config-model`,
+        `ses_typed_mismatch_${change}:fake-memory-model`,
+      ])
+      expect(seen).toEqual(["memory-config-model:profile-A"])
+    }
+  })
+
+  test("model port falls back to the session model when the configured model has no language model", async () => {
+    const seen: string[] = []
+    const broken = Effect.fail(
+      new ModelNotFoundError({ providerID: pid, modelID: ModelV2.ID.make("memory-config-model") }),
+    )
+    const port = MemoryModel.port({ provider: provider({ seen, broken }), authority })
+
+    const result = await Effect.runPromise(port.resolve({ configured: "test/memory-config-model", session: ref }))
+
+    await port.run({
+      handle: result.handle,
+      sessionID: "ses_language_fallback",
+      system: "system",
+      prompt: "prompt",
+      timeoutMs: 30_000,
+    })
+    expect(result.fallback).toBeUndefined()
+    expect(seen).toEqual(["memory-config-model", "fake-memory-model"])
+  })
+
+  test("model port fails closed when its session-model fallback has no language model", async () => {
+    const seen: string[] = []
+    const auth: string[] = []
+    const port = MemoryModel.port({
+      provider: {
+        ...provider({}),
+        getLanguage: (model) => {
+          seen.push(model.id)
+          return Effect.fail(new ModelNotFoundError({ providerID: pid, modelID: model.id }))
+        },
+      },
+      authority: async (model, sessionID) => {
+        auth.push(`${sessionID}:${model.id}`)
+        return authority(model, sessionID)
+      },
+    })
+    const result = await Effect.runPromise(port.resolve({ configured: "test/memory-config-model", session: ref }))
+
+    const input = {
+      handle: result.handle,
+      sessionID: "ses_missing_session_language",
+      system: "system",
+      prompt: "prompt",
+      timeoutMs: 30_000,
+    }
+    const failed = await Promise.all([
+      port.run(input).then(
+        () => "",
+        (err) => String(err),
+      ),
+      port.run(input).then(
+        () => "",
+        (err) => String(err),
+      ),
+    ])
+    expect(failed.every((err) => err.includes("Memory utility generation failed"))).toBe(true)
+    expect(seen).toEqual(["memory-config-model", "fake-memory-model"])
+    expect(auth).toEqual([
+      "ses_missing_session_language:memory-config-model",
+      "ses_missing_session_language:fake-memory-model",
+    ])
+  })
+
+  test("model port falls back to the session model when the configured model's SDK fails to load", async () => {
+    const seen: string[] = []
+    const broken = Effect.die(new Error("sdk failed to load"))
+    const port = MemoryModel.port({
+      provider: provider({ seen, broken }),
+      authority: async (model, sessionID) => ({ ...(await authority(model, sessionID)), mode: "legacy" }),
+    })
+
+    const result = await Effect.runPromise(port.resolve({ configured: "test/memory-config-model", session: ref }))
+
+    await port.run({
+      handle: result.handle,
+      sessionID: "ses_legacy_fallback",
+      system: "system",
+      prompt: "prompt",
+      timeoutMs: 30_000,
+    })
+    expect(result.fallback).toBeUndefined()
+    expect(seen).toEqual(["memory-config-model", "fake-memory-model"])
   })
 
   test("model port sends x-opencode-session for opencode-managed memory models", async () => {
@@ -492,7 +871,7 @@ describe("memory ports", () => {
               message: {
                 role: "assistant",
                 content: '{"topic":"t","summary":"s"}',
-                reasoning_content: "The user just",
+                reasoning_content: "private-reasoning-secret",
               },
               finish_reason: "stop",
             },
@@ -525,6 +904,7 @@ describe("memory ports", () => {
 
       expect((seen[0] as { stream?: boolean }).stream).toBe(false)
       expect(result.text).toBe('{"topic":"t","summary":"s"}')
+      expect(result.text).not.toContain("private-reasoning-secret")
     } finally {
       server.stop(true)
     }
@@ -604,5 +984,88 @@ describe("memory ports", () => {
 
     expect(handles.size).toBe(1)
     expect(cleared.size).toBe(1)
+  })
+})
+
+describe("memory turn", () => {
+  function config(model?: string | null) {
+    return { get: () => Effect.succeed({ memory_model: model }) }
+  }
+
+  async function close(model?: string | null, broken?: Effect.Effect<never, ModelNotFoundError>) {
+    await using tmp = await tmpdir({ git: true })
+    const seen: string[] = []
+    const prior = Global.Path.data
+    ;(Global.Path as { data: string }).data = path.join(tmp.path, "data")
+    installMemoryRuntime()
+    try {
+      await provideTestInstance({
+        directory: tmp.path,
+        fn: async (ctx) => {
+          const source = await AppRuntime.runPromise(SessionModule.Service.use((service) => service.create()))
+          const sessionID = source.id
+          const uid = MessageID.make("msg_turn_user")
+          const final = MessageID.make("msg_turn_final")
+          const messages = [
+            user({ sessionID, id: uid, body: "Which command runs the CLI memory tests?" }),
+            assistant({
+              sessionID,
+              id: final,
+              parentID: uid,
+              time: 2,
+              parts: [text(sessionID, final, "Run bun test from packages/opencode for CLI memory tests.")],
+            }),
+          ]
+          await KiloMemory.enable({ ctx })
+          await Effect.runPromise(
+            MemoryTurn.close({
+              sessionID,
+              reason: "completed",
+              sessions: sessions(messages),
+              summary: summary({ seen: [], diffs: [] }),
+              provider: provider({
+                seen,
+                broken,
+                outputs: [
+                  '{"topic":"memory","summary":"Found the CLI memory test command.","operations":[],"skipped":[]}',
+                ],
+              }),
+              config: config(model),
+            }).pipe(
+              Effect.provideService(InstanceRef, ctx),
+              Effect.provideService(MemoryService.Service, MemoryService.make()),
+            ),
+          )
+        },
+      })
+    } finally {
+      ;(Global.Path as { data: string }).data = prior
+    }
+    return seen
+  }
+
+  test("close runs automatic saves on the configured memory_model", async () => {
+    expect(await close("test/memory-config-model")).toEqual(["memory-config-model"])
+  })
+
+  test("close uses the session model when memory_model is unset", async () => {
+    expect(await close()).toEqual(["fake-memory-model"])
+  })
+
+  test("close uses the session model when memory_model is null", async () => {
+    expect(await close(null)).toEqual(["fake-memory-model"])
+  })
+
+  test("close falls back to the session model when memory_model is malformed", async () => {
+    expect(await close("memory-config-model")).toEqual(["fake-memory-model"])
+  })
+
+  test("close falls back to the session model when memory_model is unavailable", async () => {
+    expect(await close("test/missing-memory-model")).toEqual(["fake-memory-model"])
+  })
+
+  test("close fails closed when a configured utility SDK has an initialization defect", async () => {
+    const broken = Effect.die(new Error("sdk failed to load"))
+    expect(await close("test/memory-config-model", broken)).toEqual(["memory-config-model"])
   })
 })

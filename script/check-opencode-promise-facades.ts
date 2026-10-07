@@ -114,6 +114,13 @@ const testAllow: Record<string, { count: number; reason: string }> = {
       "MemoryTurn.close's real Promise authority and model ports use the production application runtime. The test " +
       "must create its bound source transcript in that same instance/database to observe SDK dispatch and persisted memory.",
   },
+  "kilocode/memory/memory-ports.test.ts": {
+    count: 2,
+    reason:
+      "MemoryTurn.close resolves source-session utility authority through the production application runtime. " +
+      "Its configuration integration tests must create their real source session in that same runtime/store; " +
+      "the port-level provider and authority tests remain scoped and do not use AppRuntime.",
+  },
   "kilocode/qualification/standalone-failures.test.ts": {
     count: 9,
     reason:
@@ -219,8 +226,10 @@ const testAllow: Record<string, { count: number; reason: string }> = {
 const owned = (file: string) => file.startsWith("kilocode/") || file.startsWith("kilo-sessions/")
 const hits: Array<{ file: string; line: number }> = []
 const glob = new Bun.Glob("**/*.ts")
+// Bun.Glob returns backslash-separated paths on Windows; the allowlists use forward slashes.
+const scan = (cwd: string) => Array.from(glob.scanSync({ cwd, onlyFiles: true }), (file) => file.replaceAll("\\", "/"))
 
-for (const file of glob.scanSync({ cwd: DIR, onlyFiles: true })) {
+for (const file of scan(DIR)) {
   if (owned(file)) continue
   const text = await Bun.file(path.join(DIR, file)).text()
   for (const match of text.matchAll(PATTERN)) {
@@ -237,7 +246,7 @@ const drift = Object.entries(allow).flatMap(([file, reason]) => {
 })
 
 const testHits: Array<{ file: string; line: number }> = []
-for (const file of glob.scanSync({ cwd: TEST_DIR, onlyFiles: true })) {
+for (const file of scan(TEST_DIR)) {
   const text = await Bun.file(path.join(TEST_DIR, file)).text()
   for (const match of text.matchAll(TEST_PATTERN)) {
     const line = text.slice(0, match.index ?? 0).split("\n").length

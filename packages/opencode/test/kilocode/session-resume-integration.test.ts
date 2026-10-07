@@ -112,12 +112,14 @@ const mcp = Layer.succeed(
     add: () => Effect.succeed({ status: { status: "disabled" as const } }),
     connect: () => Effect.void,
     disconnect: () => Effect.void,
+    remove: () => Effect.void, // kilocode_change
     getPrompt: () => Effect.succeed(undefined),
     readResource: () => Effect.succeed(undefined),
     startAuth: () => Effect.die("unexpected MCP auth"),
     authenticate: () => Effect.die("unexpected MCP auth"),
     finishAuth: () => Effect.die("unexpected MCP auth"),
     removeAuth: () => Effect.void,
+    cancelAuth: () => Effect.void,
     supportsOAuth: () => Effect.succeed(false),
     hasStoredTokens: () => Effect.succeed(false),
     getAuthStatus: () => Effect.succeed("not_authenticated" as const),
@@ -362,10 +364,7 @@ it.instance("migrates an absent compatibility binding during the first admitted 
     const { prompt, sessions, chat } = yield* boot()
     yield* clearBinding(chat.id)
     expect(yield* sessions.binding(chat.id)).toBeUndefined()
-    const binding = yield* sessions.turn(
-      chat.id,
-      sessions.ensureBinding({ sessionID: chat.id, provider: "openai" }),
-    )
+    const binding = yield* sessions.turn(chat.id, sessions.ensureBinding({ sessionID: chat.id, provider: "openai" }))
     expect(binding).toEqual({
       mode: "legacy",
       authMode: "api",
@@ -413,7 +412,9 @@ itOpenAI.instance("a first OpenAI prompt durably migrates a pre-feature session 
       parts: [{ type: "text", text: "resume an older OpenAI session" }],
     })
 
-    expect(result.parts.some((part) => part.type === "text" && part.text.includes("legacy binding migrated"))).toBe(true)
+    expect(result.parts.some((part) => part.type === "text" && part.text.includes("legacy binding migrated"))).toBe(
+      true,
+    )
     expect(SessionBinding.get((yield* sessions.get(chat.id)).metadata)?.providers.openai).toEqual({
       mode: "legacy",
       authMode: "api",
@@ -462,10 +463,7 @@ it.instance("pins the imported legacy profile, not a changed default, on an old 
     })
     yield* profiles.selectDefault("openai", "chatgpt-oauth", profile.id)
 
-    const binding = yield* sessions.turn(
-      chat.id,
-      sessions.ensureBinding({ sessionID: chat.id, provider: "openai" }),
-    )
+    const binding = yield* sessions.turn(chat.id, sessions.ensureBinding({ sessionID: chat.id, provider: "openai" }))
     expect(binding).toEqual({
       mode: "profile",
       profileID: imported.accountID,

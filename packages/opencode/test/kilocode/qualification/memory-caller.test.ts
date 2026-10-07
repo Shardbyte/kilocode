@@ -7,6 +7,7 @@ import { AppRuntime } from "@/effect/app-runtime"
 import { InstanceStore } from "@/project/instance-store"
 import { provide } from "@/kilocode/instance"
 import { Provider } from "@/provider/provider"
+import { Config } from "@/config/config"
 import { Session } from "@/session/session"
 import { MessageID, PartID } from "@/session/schema"
 import { MemoryTurn } from "@/kilocode/memory/turn"
@@ -44,6 +45,7 @@ test("actual memory close persists a source-A fact through the real Responses SD
             const profiles = yield* ProviderAccountProfiles.Service
             const sessions = yield* Session.Service
             const provider = yield* Provider.Service
+            const config = yield* Config.Service
             const create = (label: string, account: string) =>
               profiles.create({
                 provider: "openai",
@@ -107,7 +109,7 @@ test("actual memory close persists a source-A fact through the real Responses SD
               diff: () => Effect.succeed([]),
               computeDiff: () => Effect.succeed([]),
             } as unknown as import("@/session/summary").SessionSummary.Interface
-            yield* MemoryTurn.close({ sessionID: source.id, reason: "completed", sessions, summary, provider })
+            yield* MemoryTurn.close({ sessionID: source.id, reason: "completed", sessions, summary, provider, config })
           }).pipe(Effect.provideService(MemoryService.Service, MemoryService.make())),
         ),
     })
