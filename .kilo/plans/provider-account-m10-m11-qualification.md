@@ -968,3 +968,44 @@ The denominator remains **137 tests** (original reproduction: 135 passed plus tw
 Changed repository files are only the two qualification tests and this append-only ledger. Canonical branch/HEAD remain `feat/provider-account-profiles` / `f24e0fdda6c52440676c5c0964ef5dfab480a913`; the regular index is empty, and these changes remain unstaged, uncommitted and unpushed. No qualification tag, hosted run, Run 4, M11 diagnosis, M12 work, or PR was created.
 
 Recommendation: **M10_READY_FOR_ACCEPTANCE_REVIEW** for this bounded correction; this is not automatic acceptance or resolution of other platform/historical/NOT_RUN evidence. Governance remains **M10 FAIL - CORRECTIVE WORK REQUIRED**, **M11 NOT ACCEPTED**, **M12 NOT AUTHORIZED** pending human review.
+
+## Governing Human Decision — 2026-10-07
+
+This appended section is the current governing disposition and prospectively supersedes earlier current-state labels, recommendations, and proposed follow-up in this ledger. Earlier records remain immutable historical checkpoints; nothing in them is edited or retroactively reclassified. Exact human decision: **M10 ACCEPTED / M11 NOT ACCEPTED / M12 NOT AUTHORIZED**.
+
+### M10 Acceptance Basis
+
+Canonical correction commit `989d187754823520591a6d22c3049788279ee759`, parent `f24e0fdda6c52440676c5c0964ef5dfab480a913`, subject `test(qualification): stabilize M10 behavioral evidence`. The commit changes qualification evidence only, not Provider Account product behavior:
+
+- The caller defect in `packages/opencode/test/kilocode/qualification/caller-failures.test.ts` was an exact `AppRuntime.runPromise` total that included incidental fixture/setup/cleanup activity, not a frozen invariant. The correction requires all six expected failure origins and one result for every origin from each caller. All existing behavioral, failure, API-bound and leakage checks remain; the fixture count is diagnostic only.
+- The utility defect in `packages/opencode/test/kilocode/qualification/utility-inference.test.ts` was inherited process-global logger transport: another test legitimately selected file logging while the assertion assumed stderr. The correction runs the original logging assertion body in an isolated, bounded child with explicit stderr transport. The parent does not mutate global logger state; original sanitization and leakage assertions remain. No production logging behavior changed.
+- Full hosted Run 3 **37563665618**, source `f24e0fdda6c52440676c5c0964ef5dfab480a913`, remains exactly **47 PASS / 7 FAIL / 9 NOT_RUN**. No campaign evidence was rewritten. It established no evidence-supported Provider Account/Profile product defect; its two Linux qualification failures were subsequently attributed to the harness defects above.
+- On corrected canonical source, the exact unchanged Run 3 Linux M10 selection passed locally: **137 passed /0 failed /0 skipped /1,369 parent assertions**. Selected denominator before correction: **137**; after correction: **137**. No selected test/file/title was removed, skipped or excluded.
+- Bounded hosted confirmation: run **37580432028**, attempt **1**, Ubuntu 24.04 Linux X64, Bun 1.4.2; diagnostic SHA `7953ed1344a7d9d6f33adcbbed609ad8ebd91e43`, directly parented by canonical `989d187754823520591a6d22c3049788279ee759`, which is also the recorded canonical source. Result: **137 passed /0 failed /0 skipped /1,369 parent assertions**, exit 0, timeout false. The runner verifies the parent SHA, rejects source drift in canonical M10 product/test inputs, resolves the existing canonical Linux suite, and requires denominator 137, zero failures, zero skips and both corrected test titles passing. Exact selection equality was independently checked. This was bounded confirmation, not Run 4 or a full campaign retry. No retry occurred. The diagnostic branch `diagnostic/m10-linux-confirmation-989d187` is not merged into canonical.
+- Hosted child evidence is provided by the passing utility parent's explicit assertions for child exit 0, one pass, zero failures and marker absence. The original child logging assertion body remains intact. An independent hosted child recap/count was not published; the 1,369 count is the parent-suite assertion recap, not a child assertion total.
+
+Human acceptance statements (verbatim):
+
+> M10 is accepted because all demonstrated M10 failures have either passed directly or were causally established as qualification-harness defects, corrected without product behavior changes or denominator reduction, and revalidated locally and on the same hosted Linux class that exposed them.
+
+> Absence of an M10 product defect is not inferred solely from a green confirmation. Acceptance rests on the complete accumulated M10 evidence set, frozen architecture review, full hosted campaigns, targeted attribution, corrective review, and bounded hosted revalidation.
+
+### M11 Remains Not Accepted
+
+The following M11 concerns remain unresolved and do not qualify as proved product defects or a demonstrated invariant violation:
+
+- Windows VS Code persistent failures `GitOps > applyPatch > applies changes to the working tree` and `WorktreeManager.createWorktree > retains post-checkout hook failure tolerance with parallel checkout` remain `PLATFORM_OR_ENVIRONMENT`. Root cause is **unproven**, and no Provider Account invariant connection is established.
+- macOS ARM64 JetBrains: Run 1 passed; Runs 2 and 3 failed. Run 2 targeted attribution implicated prerequisite OpenAPI/checksum generation; Run 3 lacks sufficient phase detail to reuse that attribution automatically. Status remains **UNRESOLVED**.
+- All seven historical checkpoints prove the requested commit, exact HEAD, non-shallow repository, Git metadata, pinned Bun, clean source and successful frozen install. All seven historical CLI builds exit 1. Classification remains `PASS / SOURCE_INSPECTION`, availability `SOURCE_ONLY`, `HISTORICAL_EXECUTABLE=0`, `HISTORICAL_REBUILT=0`; the common build-failure cause is not yet attributable from safe evidence.
+- Six historical client gaps remain `NOT_RUN`: `historical-vscode:build`, `historical-vscode:accountTests`, `historical-vscode:guiFlow`, `historical-jetbrains:build`, `historical-jetbrains:accountTests`, and `historical-jetbrains:guiFlow`.
+- Historical CLI skew `historical-cli-skew:old-cli-to-current-http` and `historical-cli-skew:current-cli-to-old-http` remains `NOT_RUN`; historical M8-M9 request-shape HTTP evidence remains `PASS / REAL_HTTP_HISTORICAL_PROTOCOL` but does not replace executable skew testing.
+- `migration-crash:abrupt-during-migration` remains `NOT_RUN`.
+- Current macOS execution evidence is ARM64 only; no Intel macOS execution has been established. Darwin profile-policy validation does not imply excluded tests executed.
+
+These M11 limits do **not** reopen M10 absent a newly demonstrated violation of a frozen M10 invariant. The retained Windows/macOS, historical-client, skew, and migration gaps do not alter the explicit M10 acceptance.
+
+### Authorization Boundary And Next Step
+
+M10 acceptance is an explicit human milestone decision, not inferred automatically from CI. Current governance is **M10 ACCEPTED / M11 NOT ACCEPTED / M12 NOT AUTHORIZED**. This documentation checkpoint authorizes no M11 diagnostic execution, M12 work, upstream PR, diagnostic-branch merge, new full campaign or production change.
+
+Recommended first bounded M11 diagnostic target: the two persistent Windows VS Code Git/worktree failures on the same hosted Windows class, with source-bound safe phase evidence to distinguish Git apply/worktree lifecycle, post-checkout hook behavior and platform/environment prerequisites. Root cause must be demonstrated rather than inferred from test titles. This is a planning recommendation only; it has not been executed.
