@@ -1049,3 +1049,61 @@ Local Linux Bun 1.4.2 results were GitOps **54 passed / 0 failed / 0 skipped / 8
 Run `37586349510` and run `37648240999` are bounded diagnostics, not new full campaigns. The final confirmation directly used canonical parent source with the pending two test-only edits copied into its isolated diagnostic source; the manifest/source comparison is recorded above. Safe artifact paths: `/tmp/kilo/m11-fixture-local-validation.json` and `/tmp/kilo/m11-windows-fixture-confirmation-37648240999/m11-windows-fixture-confirmation.json`. No raw logs or credentials are included here.
 
 Canonical repository state for this record: branch `feat/provider-account-profiles`, HEAD and remote `b0ff7f9c2713f24585947ef09776576cd23d778a`, empty index; exactly the two test corrections plus this append-only ledger remain unstaged, uncommitted and unpushed on canonical. Only an isolated diagnostic copy was committed/pushed for hosted execution; no diagnostic tooling/workflow was merged into canonical. No production GitOps, WorktreeManager or Provider Account behavior changed; M10 was not reopened. No M11 acceptance, M12 work, historical investigation, full campaign or automatic qualification retry/job rerun occurred. **Recommendation: M11_WINDOWS_CORRECTION_READY_FOR_REVIEW.** M11 remains **NOT ACCEPTED** pending human review.
+
+## Governing Human Decision — M11 Acceptance With Limitations And M12 Authorization — 2026-10-07
+
+This append records an explicit human milestone decision effective now. It prospectively supersedes earlier current-state labels and follow-up recommendations; prior records retain their original historical meaning. The canonical checkpoint is `46652c358e38c34e7e5af09c8b2ca7fc684f9d37` on `feat/provider-account-profiles`.
+
+```text
+M10 ACCEPTED
+M11 ACCEPTED WITH DOCUMENTED COMPATIBILITY LIMITATIONS
+M12 AUTHORIZED
+```
+
+Human acceptance statements (verbatim):
+
+> M11 is accepted with documented compatibility limitations. The remaining unresolved and unexecuted compatibility items are retained as evidence gaps and release/upstream considerations, not reclassified as passing results. None currently demonstrates a Provider Account product defect or violation of the accepted M10 correctness/security architecture.
+
+> Further M11 investigation is deferred because its expected engineering value is lower than proceeding to live dogfood and PR-readiness validation. Any M11 limitation may be reopened if M12 exposes a concrete user-facing failure, release blocker, or upstream requirement.
+
+Acceptance does not mean every compatibility matrix cell passed. The remaining gaps are documented; none currently demonstrates a Provider Account architecture defect or frozen M10 invariant violation. Human review judges the uncertainty acceptable for continued development and live dogfood, while retaining it for release/upstream decisions. M10 acceptance and its correctness/security evidence are unchanged.
+
+### Accepted M11 Evidence
+
+M11 established substantial, scoped compatibility evidence across current Linux, current Windows, current macOS ARM64, VS Code, JetBrains where successfully exercised, CLI/backend qualification, already-covered migration/restart behavior, historical protocol compatibility, pinned historical source/toolchain inspection, Windows Git/worktree fixture portability, and current-source hosted qualification. This is an inventory of accumulated evidence, not a claim that every client/platform combination passed.
+
+The persistent Windows Git/worktree failures were causally established as `TEST_FIXTURE_DEFECT`. Canonical correction `46652c358e38c34e7e5af09c8b2ca7fc684f9d37`, subject `test(vscode): make Git fixtures portable on Windows`, corrected the two fixtures without production behavior changes. Hosted Windows confirmation run `37648240999`, attempt 1, established the following unchanged whole-file denominators:
+
+| Selection | Passed | Failed | Skipped |
+|---|---:|---:|---:|
+| GitOps | 54 | 0 | 0 |
+| WorktreeManager | 132 | 0 | 0 |
+| Combined | 186 | 0 | 0 |
+
+The preceding correction record retains the detailed attribution, source bindings, runner identity, and limitations of the diagnostic controls. No Provider Account product defect was demonstrated.
+
+### Retained M11 Compatibility Limitations
+
+None of the following is silently converted to `PASS` by acceptance:
+
+- **Historical executables:** evidence remains primarily pinned source/toolchain inspection and partial rebuild diagnostics. Representative checkpoints built outside a restrictive local sandbox; the newest checkpoint also produced successful executable/backend-health evidence. The exact cause of the original hosted Run 3 historical build failures was not fully reconciled against the canonical hosted harness. Comprehensive historical executable compatibility is not claimed. Keep every checkpoint's established evidence class unchanged; the seven Run 3 historical checkpoint entries remain `SOURCE_INSPECTION`. Stronger diagnostic observations remain separately scoped and do not promote those entries. The local sandbox EROFS finding remains a valid local diagnostic environment limitation, not automatic attribution of hosted Run 3 failures.
+- **Historical VS Code:** `historical-vscode:build`, `historical-vscode:accountTests`, and `historical-vscode:guiFlow` remain `NOT_RUN`.
+- **Historical JetBrains:** `historical-jetbrains:build`, `historical-jetbrains:accountTests`, and `historical-jetbrains:guiFlow` remain `NOT_RUN`.
+- **Executable CLI version skew:** `historical-cli-skew:old-cli-to-current-http` and `historical-cli-skew:current-cli-to-old-http` remain `NOT_RUN`. Historical protocol evidence remains valid but does not equal executable version-skew testing.
+- **Abrupt migration interruption:** `migration-crash:abrupt-during-migration` remains `NOT_RUN`. Existing migration/restart/idempotence evidence remains valid; this specific boundary is an accepted limitation unless M12 demonstrates a concrete reason to prioritize it.
+- **macOS ARM64 JetBrains:** inconsistent hosted results and unresolved prerequisite/build-stage behavior remain a platform limitation. No Provider Account product defect was demonstrated; earlier campaign results are not reconciled by assumption.
+- **macOS Intel:** no Intel qualification was established. Current macOS evidence is ARM64 only; Intel compatibility is not inferred.
+
+### Evidence Preservation And Deferral
+
+Run 1, Run 2, Run 3, their counts and results, historical evidence classes, `NOT_RUN` entries, diagnostic classifications, and M10 acceptance evidence remain unchanged. This governance decision is append-only, not a rewritten campaign, evidence promotion, new full qualification campaign, or retrospective waiver of a product defect.
+
+Further historical-build attribution is deferred and must not resume unless later M12 evidence demonstrates that it is required for a concrete release or upstream decision. A concrete user-facing failure may trigger review of the relevant M11 limitation; it is not blanket authorization to restart historical investigation. No pending historical diagnostic is required for this acceptance decision.
+
+### Authorized M12 Scope And Immediate Planning Boundary
+
+M12 is **live dogfood + operational validation + PR readiness**, not another broad synthetic qualification campaign. Its purpose is to determine whether Provider Account Profiles behaves correctly and coherently in real Kilo usage and is ready to be shaped into an upstream-quality change.
+
+The immediate task is **planning only**: prepare [M12 Live Dogfood and PR Readiness Plan](provider-account-m12-live-dogfood-pr-readiness.md) before additional feature changes or live account operations. The plan must order safe preparation and non-destructive inspection first, schedule destructive account operations late behind explicit human review, and specify evidence, stop conditions, rollback/recovery notes, and human gates. No plan step has been executed by this decision. Product changes, destructive account mutations, PR creation, release-policy changes, and published-history rewriting are not authorized by this planning task.
+
+Frozen user-facing semantics remain **Default for new sessions** and **Used by this session**. `KILO_EXPERIMENTAL_PROVIDER_PROFILES` must not be removed merely because M12 is authorized. Potential M10 regressions stop the affected flow for review; UX defects are tracked separately from architecture defects. M12 acceptance remains a later human decision, and upstream PR authorization remains separate even after M12 acceptance.
