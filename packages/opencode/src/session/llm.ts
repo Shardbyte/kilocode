@@ -174,10 +174,12 @@ const live: Layer.Layer<
         { concurrency: "unbounded" },
       )
       const isWorkflow = language instanceof GitLabWorkflowLanguageModel
+      const oauth = item.id === "openai" && (selected?.mode === "profile" || info?.type === "oauth") // kilocode_change - use resolved context for both preparation and estimation
       const base = yield* LLMRequestPrep.prepare({
         ...input,
         provider: item,
         auth: info,
+        oauth, // kilocode_change - profile requests still carry no legacy auth or credential
         plugin,
         flags,
         isWorkflow,
@@ -185,14 +187,12 @@ const live: Layer.Layer<
 
       // kilocode_change start - compact at the configured threshold before contacting the provider
       const tools = yield* Effect.promise(() => KiloToolSchema.sanitize(base.tools))
-      const isOpenaiOauth =
-        item.id === "openai" && (profileID !== undefined || profile?.mode === "profile" || info?.type === "oauth") // kilocode_change
       const estimated: ModelMessage[] =
-        isOpenaiOauth || isWorkflow
+        oauth || isWorkflow
           ? [
               {
                 role: "system",
-                content: isOpenaiOauth ? String(base.params.options.instructions ?? "") : base.system.join("\n"),
+                content: oauth ? String(base.params.options.instructions ?? "") : base.system.join("\n"),
               },
               ...base.messages,
             ]

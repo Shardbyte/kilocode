@@ -44,6 +44,7 @@ type PrepareInput = {
   readonly tools: Record<string, Tool>
   readonly provider: Provider.Info
   readonly auth: Auth.Info | undefined
+  readonly oauth?: boolean // kilocode_change - nonsecret effective context for profile-bound Codex requests
   readonly plugin: Plugin.Interface
   readonly flags: RuntimeFlags.Info
   readonly isWorkflow: boolean
@@ -68,7 +69,7 @@ const mergeOptions = (target: Record<string, any>, source: Record<string, any> |
   mergeDeep(target, source ?? {}) as Record<string, any>
 
 export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: PrepareInput) {
-  const isOpenaiOauth = input.provider.id === "openai" && input.auth?.type === "oauth"
+  const isOpenaiOauth = input.provider.id === "openai" && (input.oauth === true || input.auth?.type === "oauth") // kilocode_change
   const includePersona = KilocodeSystemPrompt.shouldIncludePersona(input.agent.name) // kilocode_change
   const system = [
     [

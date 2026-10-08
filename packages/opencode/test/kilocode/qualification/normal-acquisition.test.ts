@@ -10,10 +10,15 @@ import { Database } from "@opencode-ai/core/database/database"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { Agent } from "@/agent/agent"
+import { Auth } from "@/auth"
 import { Config } from "@/config/config"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { LLM } from "@/session/llm"
+import { LLMRequestPrep } from "@/session/llm/request"
+import { KiloSessionOverflow } from "@/kilocode/session/overflow"
+import { UtilityAccount } from "@/kilocode/provider/utility-account"
+import { responses } from "./title-caller.fixture"
 import { MessageID } from "@/session/schema"
 import { Session } from "@/session/session"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
@@ -27,6 +32,7 @@ import { Deferred, Effect, Fiber, Layer, Stream } from "effect"
 const model = { providerID: ProviderV2.ID.openai, id: ModelV2.ID.make("gpt-5") }
 const hook = { ambient: 0 }
 const config = {
+  compaction: { threshold_percent: 50 },
   small_model: "openai/gpt-5",
   provider: {
     openai: {
@@ -41,6 +47,7 @@ const config = {
       models: {
         "gpt-5": { name: "GPT-5", limit: { context: 128000, output: 4096 } },
         "gpt-5-mini": { name: "GPT-5 Mini", limit: { context: 128000, output: 4096 } },
+        "gpt-5.4": { name: "GPT-5.4", limit: { context: 400000, output: 128000 } },
       },
     },
   },
@@ -50,6 +57,7 @@ const it = testEffect(
   AppNodeBuilder.build(
     LayerNode.group([
       LLM.node,
+      Auth.node,
       Session.node,
       SessionProjector.node,
       Database.node,
@@ -260,5 +268,172 @@ it.instance("availability queries and account defaults leave persisted session a
         expect(yield* sessions.binding(chat.id)).toEqual(unbound)
       }),
     ),
+  ),
+)
+
+it.instance("normal and explicit utility LLM requests prepare Codex instructions without reading legacy auth", () =>
+  Effect.acquireUseRelease(
+    Effect.sync(() => {
+      const prior = {
+        flag: process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES,
+        key: process.env.OPENAI_API_KEY,
+        auth: process.env.KILO_AUTH_CONTENT,
+        fetch: globalThis.fetch,
+      }
+      const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = []
+      hook.ambient = 0
+      process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+      process.env.OPENAI_API_KEY = "NORMAL_ACQUISITION_ENV_POISON"
+      process.env.KILO_AUTH_CONTENT = JSON.stringify({
+        openai: { type: "api", key: "NORMAL_ACQUISITION_LEGACY_POISON" },
+      })
+      globalThis.fetch = Object.assign(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          const request = new Request(input, init)
+          calls.push({ url: request.url, headers: request.headers, body: await request.json() })
+          return responses("Fixture completion")
+        },
+        { preconnect: prior.fetch.preconnect },
+      )
+      return { ...prior, calls }
+    }),
+    (state) =>
+      Effect.gen(function* () {
+        const profiles = yield* ProviderAccountProfiles.Service
+        const sessions = yield* Session.Service
+        const provider = yield* Provider.Service
+        const auth = yield* Auth.Service
+        const create = (label: string) =>
+          profiles.create({
+            provider: "openai",
+            authMode: "chatgpt-oauth",
+            label,
+            remoteID: label,
+            credential: {
+              access: `fixture-access-${label}`,
+              refresh: `fixture-refresh-${label}`,
+              expires: Date.now() + 60_000,
+              accountID: label,
+            },
+          })
+        const a = yield* create("prep-a")
+        const b = yield* create("prep-b")
+        yield* Effect.addFinalizer(() => Effect.all([profiles.remove(a.id), profiles.remove(b.id)]).pipe(Effect.orDie))
+        yield* profiles.selectDefault("openai", "chatgpt-oauth", a.id)
+        const chat = yield* sessions.create()
+        expect((yield* sessions.binding(chat.id))?.providers.openai).toMatchObject({ mode: "profile", profileID: a.id })
+        yield* profiles.selectDefault("openai", "chatgpt-oauth", b.id)
+        const binding = yield* sessions.binding(chat.id)
+        const item = yield* provider.getModel(model.providerID, ModelV2.ID.make("gpt-5.4"))
+        const reads = spyOn(auth, "get")
+        const prepare = LLMRequestPrep.prepare
+        const inputs: Parameters<typeof prepare>[0][] = []
+        const tap = spyOn(LLMRequestPrep, "prepare").mockImplementation((input) => {
+          inputs.push(input)
+          return prepare(input)
+        })
+        const measure = KiloSessionOverflow.measure
+        const estimates: Parameters<typeof measure>[0][] = []
+        const estimate = spyOn(KiloSessionOverflow, "measure").mockImplementation((input) => {
+          estimates.push(input)
+          return measure(input)
+        })
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            reads.mockRestore()
+            tap.mockRestore()
+            estimate.mockRestore()
+          }),
+        )
+        const scenarios = [
+          { name: "build" },
+          { name: "title", context: { kind: "session" as const, sourceSessionID: chat.id } },
+          { name: "branch-name", context: { kind: "session" as const, sourceSessionID: chat.id }, resolved: true },
+          {
+            name: "agent-generation",
+            context: {
+              kind: "account" as const,
+              providerID: "openai" as const,
+              authMode: "chatgpt-oauth" as const,
+              accountID: b.id,
+            },
+          },
+        ]
+        for (const scenario of scenarios) {
+          const utility = scenario.resolved
+            ? yield* UtilityAccount.resolve({
+                operation: "branch-name",
+                model: item,
+                context: { kind: "session", sourceSessionID: chat.id },
+              })
+            : undefined
+          const agent = {
+            name: scenario.name,
+            mode: "primary",
+            options: {},
+            permission: [],
+            prompt: "Fixture system instruction",
+          } satisfies Agent.Info
+          const events = yield* LLM.Service.use((svc) =>
+            svc
+              .stream({
+                user: {
+                  id: MessageID.ascending(),
+                  sessionID: chat.id,
+                  role: "user",
+                  time: { created: Date.now() },
+                  agent: agent.name,
+                  model: { providerID: item.providerID, modelID: item.id },
+                },
+                sessionID: chat.id,
+                model: item,
+                agent,
+                system: [],
+                messages: [{ role: "user", content: "Fixture input" }],
+                tools: {},
+                providerAccountContext: scenario.context,
+                utilityAccount: utility,
+                preflight: true,
+                retries: 0,
+              })
+              .pipe(Stream.runCollect),
+          )
+          expect(events.some((event) => event.type === "text-delta")).toBe(true)
+          expect(events.some((event) => event.type === "provider-error")).toBe(false)
+        }
+        expect(reads).not.toHaveBeenCalled()
+        expect(hook.ambient).toBe(0)
+        expect(state.calls).toHaveLength(4)
+        expect(inputs).toHaveLength(4)
+        expect(estimates).toHaveLength(4)
+        for (const [index, call] of state.calls.entries()) {
+          const account = index === 3 ? "prep-b" : "prep-a"
+          expect(call.url).toBe("https://chatgpt.com/backend-api/codex/responses")
+          expect(call.headers.get("authorization")).toBe(`Bearer fixture-access-${account}`)
+          expect(call.headers.get("chatgpt-account-id")).toBe(account)
+          expect(call.body).toMatchObject({ model: "gpt-5.4", stream: true, store: false })
+          expect(typeof call.body.instructions).toBe("string")
+          expect(call.body.instructions).toContain("Fixture system instruction")
+          expect(call.body.input).toMatchObject([{ role: "user" }])
+          expect(inputs.at(index)?.auth).toBeUndefined()
+          expect(inputs.at(index)?.oauth).toBe(true)
+          expect(estimates.at(index)?.messages.at(0)).toEqual({
+            role: "system",
+            content: String(call.body.instructions),
+          })
+          expect(estimates.at(index)?.messages.filter((message) => message.role === "system")).toHaveLength(1)
+        }
+        expect(yield* sessions.binding(chat.id)).toEqual(binding)
+      }),
+    (state) =>
+      Effect.sync(() => {
+        globalThis.fetch = state.fetch
+        if (state.flag == null) delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+        else process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = state.flag
+        if (state.key == null) delete process.env.OPENAI_API_KEY
+        else process.env.OPENAI_API_KEY = state.key
+        if (state.auth == null) delete process.env.KILO_AUTH_CONTENT
+        else process.env.KILO_AUTH_CONTENT = state.auth
+      }),
   ),
 )
