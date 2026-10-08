@@ -32,6 +32,7 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { ModelStatus } from "./model-status"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-account-profiles" // kilocode_change
+import { eligible } from "@/kilocode/provider/availability" // kilocode_change
 // kilocode_change start
 import {
   KILO_BUNDLED_PROVIDERS,
@@ -1149,7 +1150,7 @@ export const Info = Schema.Struct({
   id: ProviderV2.ID,
   name: Schema.String,
   description: optionalOmitUndefined(Schema.String), // kilocode_change
-  source: Schema.Literals(["env", "config", "custom", "api"]),
+  source: Schema.Literals(["env", "config", "custom", "api", "profile"]), // kilocode_change - availability through accounts is distinct from legacy auth
   env: Schema.Array(Schema.String),
   key: optional(Schema.String),
   metadata: optionalOmitUndefined(ProviderMetadata), // kilocode_change
@@ -1745,9 +1746,8 @@ const layer = Layer.effect(
           mergeProvider(providerID, partial)
         }
         // kilocode_change start - expose the bundled OpenAI catalog when profiles are the only credentials
-        if (ProviderAccountProfiles.enabled() && isProviderAllowed(ProviderV2.ID.make("openai"))) {
-          const accounts = yield* profiles.list("openai", "chatgpt-oauth").pipe(Effect.orDie)
-          if (accounts.length) mergeProvider(ProviderV2.ID.make("openai"), { source: "custom" })
+        if (!providers[ProviderV2.ID.openai] && isProviderAllowed(ProviderV2.ID.openai)) {
+          if (yield* eligible(profiles).pipe(Effect.orDie)) mergeProvider(ProviderV2.ID.openai, { source: "profile" })
         }
         // kilocode_change end
         patchKiloProviderPrivacy(providers[ProviderV2.ID.make("kilo")], cfg) // kilocode_change

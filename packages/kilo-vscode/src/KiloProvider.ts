@@ -3073,6 +3073,10 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
         usage = result.data
       }
       await send(error, usage)
+      if (!error && ["add", "remove", "reauth"].includes(action)) {
+        this.invalidateProviders()
+        await this.fetchAndSendProviders()
+      }
     } catch (error) {
       failed(error)
     }

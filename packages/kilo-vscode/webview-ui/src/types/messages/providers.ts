@@ -39,7 +39,7 @@ export interface Provider {
   id: string
   name: string
   models: Record<string, ProviderModel>
-  source?: "env" | "config" | "custom" | "api"
+  source?: "env" | "config" | "custom" | "api" | "profile"
   env?: string[]
   metadata?: {
     noteKey?: string

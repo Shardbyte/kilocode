@@ -1,3 +1,22 @@
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { Provider } from "@/provider/provider"
+import { ProviderAuth } from "@/provider/auth"
+import { Auth } from "@/auth"
+import { Credential } from "@opencode-ai/core/credential"
+import { ModelCache } from "@/provider/model-cache"
+import { ModelsDev } from "@opencode-ai/core/models-dev"
+import { InstanceStore } from "@/project/instance-store"
+import { ModelV2 } from "@opencode-ai/core/model"
+import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Config } from "@/config/config"
+import { KiloViewers } from "@/kilocode/presence/service"
+import { GlobalBus, type GlobalEvent } from "@/bus/global"
+import { TestConfig } from "../../fixture/config"
+import { testInstanceStoreLayer } from "../../fixture/fixture"
+import { ProviderApi } from "../../../src/server/routes/instance/httpapi/groups/provider"
+import { providerHandlers } from "../../../src/server/routes/instance/httpapi/handlers/provider"
+import { ControlApi } from "../../../src/server/routes/instance/httpapi/groups/control"
+import { controlHandlers } from "../../../src/server/routes/instance/httpapi/handlers/control"
 import { NodeHttpServer } from "@effect/platform-node"
 import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -15,7 +34,7 @@ import { makeProviderAccountsHandlers } from "../../../src/kilocode/server/httpa
 import { ProviderAccountsApi } from "../../../src/kilocode/server/httpapi/groups/provider-accounts"
 import type { OAuthAdapter } from "../../../src/kilocode/provider-account-oauth"
 import { Authorization } from "../../../src/server/routes/instance/httpapi/middleware/authorization"
-import { InstanceContextMiddleware } from "../../../src/server/routes/instance/httpapi/middleware/instance-context"
+import { instanceContextLayer } from "../../../src/server/routes/instance/httpapi/middleware/instance-context"
 import {
   WorkspaceRouteContext,
   WorkspaceRoutingMiddleware,
@@ -26,15 +45,12 @@ import { testEffect } from "../../lib/effect"
 
 type OAuthResult = Awaited<ReturnType<typeof import("../../../src/plugin/openai/codex").completeCodexOAuth>>
 const TEST_DB = path.join(os.tmpdir(), `provider-accounts-${randomUUID()}.db`)
-const Api = HttpApi.make("opencode-instance").addHttpApi(ProviderAccountsApi)
+const Api = HttpApi.make("opencode-instance").addHttpApi(ProviderAccountsApi).addHttpApi(ProviderApi)
 const passAuthorization = Layer.succeed(
   Authorization,
   Authorization.of((effect) => effect),
 )
-const passInstance = Layer.succeed(
-  InstanceContextMiddleware,
-  InstanceContextMiddleware.of((effect) => effect),
-)
+const passInstance = instanceContextLayer
 const passWorkspace = Layer.succeed(
   WorkspaceRoutingMiddleware,
   WorkspaceRoutingMiddleware.of((effect) =>
@@ -44,9 +60,27 @@ const passWorkspace = Layer.succeed(
 const session = Layer.mock(Session.Service)({
   assignBinding: () => Effect.fail(new SessionBinding.TurnActiveError({ message: "synthetic-access-private" })),
 })
-const db = LayerNode.compile(LayerNode.group([ProviderAccountProfiles.node, AccountUsage.node, Database.node]), [
-  [Database.node, Database.layerFromPath(TEST_DB).pipe(Layer.fresh)],
-])
+const db = AppNodeBuilder.build(
+  LayerNode.group([
+    ProviderAccountProfiles.node,
+    AccountUsage.node,
+    Database.node,
+    Provider.node,
+    ProviderAuth.node,
+    Auth.node,
+    Credential.node,
+    ModelCache.node,
+    Config.node,
+    ModelsDev.node,
+  ]),
+  [
+    [
+      Config.node,
+      TestConfig.layer({ get: () => Effect.succeed({ enabled_providers: ["openai"], formatter: false, lsp: false }) }),
+    ],
+    [Database.node, Database.layerFromPath(TEST_DB).pipe(Layer.fresh)],
+  ],
+)
 
 const adapter: OAuthAdapter<OAuthResult> = {
   start: async () => {
@@ -69,13 +103,23 @@ const adapterState = {
 
 const routes = HttpRouter.serve(
   HttpApiBuilder.layer(Api).pipe(
-    Layer.provide(makeProviderAccountsHandlers(adapter)),
+    Layer.provide([makeProviderAccountsHandlers(adapter), providerHandlers]),
+    Layer.merge(
+      HttpApiBuilder.layer(HttpApi.make("opencode-root").addHttpApi(ControlApi)).pipe(Layer.provide(controlHandlers)),
+    ),
     Layer.provide(schemaErrorLayer),
+    Layer.provide(KiloViewers.defaultLayer),
     Layer.provide([passAuthorization, passInstance, passWorkspace, session]),
+    Layer.provideMerge(testInstanceStoreLayer),
     Layer.provideMerge(db),
   ),
   { disableListenLog: true, disableLogger: true },
-).pipe(Layer.provideMerge(NodeHttpServer.layerTest))
+).pipe(
+  Layer.provide(KiloViewers.defaultLayer),
+  Layer.provideMerge(testInstanceStoreLayer),
+  Layer.provideMerge(db),
+  Layer.provideMerge(NodeHttpServer.layerTest),
+)
 const it = testEffect(routes)
 
 function json(method: "POST" | "PUT" | "PATCH", url: string, body: unknown) {
@@ -253,6 +297,103 @@ it.live("provider account routes use the real profile store and return credentia
         )
         expect(unknownCancel.status).toBe(400)
         expect(yield* unknownCancel.json).toMatchObject({ error: "NotFound" })
+      }),
+    ),
+  ),
+)
+
+it.live("provider availability follows real auth and account lifecycle without selecting credentials", () =>
+  Effect.acquireRelease(
+    Effect.sync(() => {
+      const prior = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+      process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+      const events: string[] = []
+      const listener = (event: GlobalEvent) => {
+        if (event.payload.type === "server.instance.disposed") events.push(event.payload.type)
+      }
+      GlobalBus.on("event", listener)
+      return { prior, events, listener }
+    }),
+    (state) =>
+      Effect.sync(() => {
+        GlobalBus.off("event", state.listener)
+        if (state.prior === undefined) delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+        else process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = state.prior
+      }),
+  ).pipe(
+    Effect.flatMap((state) =>
+      Effect.gen(function* () {
+        const profiles = yield* ProviderAccountProfiles.Service
+        const remove = (id: string) =>
+          HttpClientRequest.make("DELETE")(`/provider-accounts/${id}`).pipe(HttpClient.execute)
+        const available = (expected: boolean, source?: string) =>
+          Effect.gen(function* () {
+            const response = yield* HttpClient.get("/provider")
+            expect(response.status).toBe(200)
+            const body = (yield* response.json) as {
+              connected: string[]
+              all: Array<{ id: string; source: string; models: Record<string, unknown> }>
+            }
+            expect(body.connected.includes("openai")).toBe(expected)
+            const item = body.all.find((item) => item.id === "openai")
+            expect(item).toBeDefined()
+            expect(Object.keys(item!.models).length).toBeGreaterThan(0)
+            if (source) expect(item?.source).toBe(source)
+          })
+        const disconnect = () => HttpClientRequest.make("DELETE")("/auth/openai").pipe(HttpClient.execute)
+        expect((yield* disconnect()).status).toBe(200)
+        yield* available(false)
+
+        // Prime Provider.InstanceState before the first account: this is the clean-state defect.
+        const before = state.events.length
+        const a = yield* create("Availability Work", "availability-work")
+        expect(state.events.length).toBeGreaterThan(before)
+        yield* available(true, "profile")
+        const provider = yield* Provider.Service
+        const store = yield* InstanceStore.Service
+        const language = yield* store.provide(
+          { directory: process.cwd() },
+          provider
+            .getModel(ProviderV2.ID.openai, ModelV2.ID.make("gpt-5-mini"))
+            .pipe(Effect.flatMap((model) => provider.getLanguage(model, a.account.id))),
+        )
+        expect(language).toBeDefined()
+        const b = yield* create("Availability Personal", "availability-personal")
+        yield* available(true, "profile")
+        const count = state.events.length
+        yield* json("PUT", "/provider-accounts/openai/default", { accountID: b.account.id })
+        yield* available(true, "profile")
+        yield* json("PATCH", `/provider-accounts/${a.account.id}`, { label: "Availability Renamed" })
+        yield* available(true, "profile")
+        expect(state.events).toHaveLength(count)
+
+        const start = yield* json("POST", `/provider-accounts/${a.account.id}/oauth/start`, { expectedRevision: 0 })
+        const op = (yield* start.json) as { operationID: string }
+        adapterState.results.set(op.operationID, result("availability-reauth", "availability-work"))
+        const done = yield* json("POST", "/provider-accounts/oauth/complete", { operationID: op.operationID })
+        expect(done.status).toBe(200)
+        expect(state.events.length).toBeGreaterThan(count)
+        yield* available(true, "profile")
+        expect(yield* profiles.getDefault("openai", "chatgpt-oauth")).toBe(b.account.id)
+
+        expect((yield* remove(a.account.id)).status).toBe(200)
+        yield* available(true, "profile")
+        expect((yield* remove(b.account.id)).status).toBe(200)
+        yield* available(false)
+        expect(yield* profiles.getDefault("openai", "chatgpt-oauth")).toBeUndefined()
+
+        const c = yield* create("Availability Mixed", "availability-mixed")
+        expect((yield* json("PUT", "/auth/openai", { type: "api", key: "availability-legacy-key" })).status).toBe(200)
+        yield* available(true, "api")
+        expect((yield* disconnect()).status).toBe(200)
+        yield* available(true, "profile")
+        expect((yield* remove(c.account.id)).status).toBe(200)
+        yield* available(false)
+
+        expect((yield* json("PUT", "/auth/openai", { type: "api", key: "availability-legacy-only" })).status).toBe(200)
+        yield* available(true, "api")
+        expect((yield* disconnect()).status).toBe(200)
+        yield* available(false)
       }),
     ),
   ),

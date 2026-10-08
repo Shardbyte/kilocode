@@ -1,3 +1,4 @@
+import { eligible } from "@/kilocode/provider/availability"
 import { expect, spyOn } from "bun:test"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -198,5 +199,66 @@ it.instance("normal LLM fails closed when its selected account is deleted after 
         if (state.auth == null) delete process.env.KILO_AUTH_CONTENT
         else process.env.KILO_AUTH_CONTENT = state.auth
       }),
+  ),
+)
+
+it.instance("availability queries and account defaults leave persisted session authority unchanged", () =>
+  Effect.acquireRelease(
+    Effect.sync(() => {
+      const prior = process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+      process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = "1"
+      return prior
+    }),
+    (prior) =>
+      Effect.sync(() => {
+        if (prior === undefined) delete process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES
+        else process.env.KILO_EXPERIMENTAL_PROVIDER_PROFILES = prior
+      }),
+  ).pipe(
+    Effect.andThen(
+      Effect.gen(function* () {
+        const profiles = yield* ProviderAccountProfiles.Service
+        const sessions = yield* Session.Service
+        const provider = yield* Provider.Service
+        const chat = yield* sessions.create()
+        const unbound = yield* sessions.binding(chat.id)
+        expect(unbound?.providers.openai).toMatchObject({ mode: "unbound" })
+        const create = (label: string) =>
+          profiles.create({
+            provider: "openai",
+            authMode: "chatgpt-oauth",
+            label,
+            remoteID: label,
+            credential: {
+              access: "synthetic-access",
+              refresh: "synthetic-refresh",
+              expires: Date.now() + 60_000,
+              accountID: label,
+            },
+          })
+        const a = yield* create("availability-authority-a")
+        const b = yield* create("availability-authority-b")
+        yield* Effect.addFinalizer(() => Effect.all([profiles.remove(a.id), profiles.remove(b.id)]).pipe(Effect.orDie))
+        expect(yield* eligible(profiles)).toBe(true)
+        yield* provider.list()
+        expect(yield* sessions.binding(chat.id)).toEqual(unbound)
+        const bound = yield* sessions.create()
+        const binding = yield* sessions.binding(bound.id)
+        expect(binding?.providers.openai).toMatchObject({ mode: "profile", profileID: a.id, source: "default" })
+        yield* profiles.selectDefault("openai", "chatgpt-oauth", b.id)
+        expect(yield* eligible(profiles)).toBe(true)
+        yield* provider.list()
+        expect(yield* sessions.binding(bound.id)).toEqual(binding)
+        const next = yield* sessions.create()
+        expect((yield* sessions.binding(next.id))?.providers.openai).toMatchObject({ mode: "profile", profileID: b.id })
+        yield* profiles.remove(a.id)
+        expect(yield* eligible(profiles)).toBe(true)
+        expect(yield* sessions.binding(bound.id)).toEqual(binding)
+        yield* profiles.remove(b.id)
+        expect(yield* eligible(profiles)).toBe(false)
+        expect(yield* sessions.binding(bound.id)).toEqual(binding)
+        expect(yield* sessions.binding(chat.id)).toEqual(unbound)
+      }),
+    ),
   ),
 )

@@ -1,3 +1,4 @@
+import { lifecycle } from "../server/provider-auth-fixture"
 import { NodeHttpServer } from "@effect/platform-node"
 import { Database } from "@opencode-ai/core/database/database"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
@@ -107,6 +108,7 @@ const routes = HttpRouter.serve(
   HttpApiBuilder.layer(Api).pipe(
     Layer.provide(makeProviderAccountsHandlers(adapter)),
     Layer.provide(schemaErrorLayer),
+    Layer.provideMerge(lifecycle),
     Layer.provide([passAuthorization, passInstance, passWorkspace]),
     Layer.provideMerge(db),
     Layer.provideMerge(deps),

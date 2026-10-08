@@ -10,6 +10,9 @@ import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { ProviderAccountApiError } from "../groups/provider-accounts"
 import { InstanceHttpApi } from "@/server/routes/instance/httpapi/api"
 import type { ProviderAccountProfiles as Profiles } from "@opencode-ai/core/kilocode/provider-account-profiles"
+import { invalidateAfterProviderAuthChange } from "@/kilocode/server/provider-auth-lifecycle"
+import { ModelCache } from "@/provider/model-cache"
+import { InstanceStore } from "@/project/instance-store"
 
 type Operation =
   | { label: string; targetID?: never; revision?: never }
@@ -90,6 +93,13 @@ export function makeProviderAccountsHandlers(adapter: OAuthAdapter<OAuthResult> 
       const profiles = yield* ProviderAccountProfiles.Service
       const usage = yield* AccountUsage.Service
       const session = yield* Session.Service
+      const cache = yield* ModelCache.Service
+      const store = yield* InstanceStore.Service
+      const invalidate = () =>
+        invalidateAfterProviderAuthChange(PROVIDER).pipe(
+          Effect.provideService(ModelCache.Service, cache),
+          Effect.provideService(InstanceStore.Service, store),
+        )
 
       const guard = Effect.fn("ProviderAccountsHttpApi.guard")(function* () {
         if (!ProviderAccountProfiles.enabled())
@@ -229,6 +239,7 @@ export function makeProviderAccountsHandlers(adapter: OAuthAdapter<OAuthResult> 
         const current = yield* profiles.credential(info.id)
         if (!current) return yield* Effect.fail(failure("Conflict", "Provider account was removed during OAuth"))
         const defaultID = yield* profiles.getDefault(PROVIDER, MODE)
+        yield* invalidate()
         return { account: publicInfo(info, current.revision, current.value, defaultID) }
       })
 
@@ -297,6 +308,7 @@ export function makeProviderAccountsHandlers(adapter: OAuthAdapter<OAuthResult> 
         if (!account || account.provider !== PROVIDER || account.authMode !== MODE)
           return yield* Effect.fail(failure("NotFound", "Provider account was not found"))
         yield* profiles.remove(ctx.params.accountID)
+        yield* invalidate()
         return true
       })
 

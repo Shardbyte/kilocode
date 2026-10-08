@@ -1,3 +1,4 @@
+import { lifecycle } from "./provider-auth-fixture"
 import { NodeHttpServer } from "@effect/platform-node"
 import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -88,6 +89,7 @@ const routes = HttpRouter.serve(
       }),
     ),
     Layer.provide(schemaErrorLayer),
+    Layer.provideMerge(lifecycle),
     Layer.provide([passAuthorization, passInstance, passWorkspace, session]),
     Layer.provideMerge(db),
   ),

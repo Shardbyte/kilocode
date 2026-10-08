@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test"
+import { describe, expect, it, spyOn } from "bun:test"
 
 // vscode mock is provided by the shared preload (tests/setup/vscode-mock.ts)
 const { KiloProvider } = await import("../../src/KiloProvider")
@@ -7,6 +7,7 @@ type State = "connecting" | "connected" | "disconnected" | "error"
 
 type Internals = {
   webview: { postMessage: (message: unknown) => Promise<unknown> } | null
+  handleProviderAccounts: (message: Record<string, unknown>) => Promise<void>
   providersRetry: boolean
   cachedConfigMessage: unknown
   cachedConfigDirectory: string | null
@@ -216,5 +217,71 @@ describe("KiloProvider providers on reconnect", () => {
     await Bun.sleep(0)
 
     expect(providers).toBe(before)
+  })
+})
+
+describe("Provider Account availability refresh", () => {
+  it("refreshes authoritative providers after account mutations but not metadata changes", async () => {
+    const vscode = await import("vscode")
+    const browser = spyOn(vscode.env, "openExternal").mockResolvedValue(true)
+    const confirm = spyOn(vscode.window, "showInformationMessage").mockResolvedValue("Continue" as never)
+    let connected = false
+    const posts: unknown[] = []
+    const operation = { operationID: "op", url: "https://auth.openai.com/oauth/authorize" }
+    const client = {
+      kilo: { authStatus: async () => ({ data: { authenticated: false } }) },
+      provider: {
+        list: async () => ({
+          data: {
+            all: [
+              { id: "openai", name: "OpenAI", source: "profile", models: { "gpt-5": { id: "gpt-5", name: "GPT-5" } } },
+            ],
+            connected: connected ? ["openai"] : [],
+            default: {},
+          },
+        }),
+      },
+      providerAccounts: {
+        list: async () => ({ data: { accounts: [] } }),
+        oauth: {
+          start: async () => ({ data: operation }),
+          reauthenticate: async () => ({ data: operation }),
+          complete: async () => {
+            connected = true
+            return {}
+          },
+          cancel: async () => ({}),
+        },
+        remove: async () => {
+          connected = false
+          return {}
+        },
+        rename: async () => ({}),
+        default: { select: async () => ({}) },
+      },
+    }
+    const internal = provider(connection(true, client))
+    stub(internal)
+    internal.webview = { postMessage: async (message) => posts.push(message) }
+    try {
+      await internal.fetchAndSendProviders()
+      expect(posts.at(-1)).toMatchObject({ type: "providersLoaded", connected: [] })
+      for (const action of ["add", "reauth", "remove"]) {
+        await internal.handleProviderAccounts({ action, label: "Account", id: "account", revision: 0 })
+        expect(posts).toContainEqual(expect.objectContaining({ type: "providersLoading" }))
+        expect(posts.at(-1)).toMatchObject({
+          type: "providersLoaded",
+          connected: action === "remove" ? [] : ["openai"],
+        })
+      }
+      const count = posts.filter((post) => (post as { type: string }).type === "providersLoaded").length
+      for (const action of ["rename", "default"]) {
+        await internal.handleProviderAccounts({ action, label: "Renamed", id: "account" })
+      }
+      expect(posts.filter((post) => (post as { type: string }).type === "providersLoaded")).toHaveLength(count)
+    } finally {
+      browser.mockRestore()
+      confirm.mockRestore()
+    }
   })
 })

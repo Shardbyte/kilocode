@@ -2,6 +2,11 @@ import type { Provider, ProviderModel, ModelSelection } from "../types/messages"
 
 export type EnrichedModel = ProviderModel & { providerID: string; providerName: string }
 
+/** The backend's connected set describes availability, not session credential authority. */
+export function available(provider: string, connected: readonly string[]) {
+  return provider === "kilo" || connected.includes(provider)
+}
+
 /**
  * Flatten a provider map into a list of models enriched with provider info.
  */
@@ -41,6 +46,6 @@ export function isModelValid(
   if (!selection) return false
   const provider = providers[selection.providerID]
   if (!provider) return false
-  if (selection.providerID !== "kilo" && !connected.includes(selection.providerID)) return false
+  if (!available(selection.providerID, connected)) return false
   return !!provider.models[selection.modelID]
 }

@@ -27,7 +27,7 @@ import {
 import { isCustomProviderPackage, KILO_PROVIDER_ID } from "../../../../src/shared/provider-model"
 import { createProviderAction } from "../../utils/provider-action"
 
-type ProviderSource = "env" | "api" | "config" | "custom"
+type ProviderSource = "env" | "api" | "config" | "custom" | "profile"
 type ProviderOption = { value: string; label: string }
 
 const ProvidersTab: Component = () => {
@@ -73,7 +73,8 @@ const ProvidersTab: Component = () => {
   function source(item: Provider): ProviderSource | undefined {
     if (!("source" in item)) return
     const value = (item as Provider & { source?: string }).source
-    if (value === "env" || value === "api" || value === "config" || value === "custom") return value
+    if (value === "env" || value === "api" || value === "config" || value === "custom" || value === "profile")
+      return value
     return
   }
 
@@ -82,6 +83,7 @@ const ProvidersTab: Component = () => {
     const current = source(item)
     if (current === "env") return language.t("settings.providers.tag.environment")
     if (current === "api") return language.t("provider.connect.method.apiKey")
+    if (current === "profile") return "Provider Accounts"
     if (current === "config") {
       const cfg = config().provider?.[item.id]
       if (isCustomProviderPackage(cfg?.npm)) return language.t("settings.providers.tag.custom")
@@ -93,7 +95,7 @@ const ProvidersTab: Component = () => {
   }
 
   function canDisconnect(item: Provider) {
-    return source(item) !== "env"
+    return source(item) !== "env" && source(item) !== "profile"
   }
 
   function isCustom(item: Provider) {
@@ -253,7 +255,7 @@ const ProvidersTab: Component = () => {
                   <Tag>{sourceTag(item)}</Tag>
                 </div>
                 <div style={{ display: "flex", "align-items": "center", gap: "4px" }}>
-                  <Show when={!canDisconnect(item)}>
+                  <Show when={source(item) === "env"}>
                     <span
                       style={{
                         "font-size": "var(--kilo-font-size-14)",

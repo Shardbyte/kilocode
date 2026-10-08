@@ -123,7 +123,13 @@ const legacyPatched = legacySource.includes(sandbox)
 if (!legacyPatched.includes(sandbox)) {
   throw new Error(`Legacy Config sandbox patch did not apply (${legacyTypesPath})`)
 }
-await Bun.write(legacyTypesPath, legacyPatched)
+// kilocode_change start - retain Provider source compatibility for legacy plugin contracts
+const source = legacyPatched.replace(
+  'source: "env" | "config" | "custom" | "api"\n',
+  'source: "env" | "config" | "custom" | "api" | "profile"\n',
+)
+await Bun.write(legacyTypesPath, source)
+// kilocode_change end
 
 await $`bun prettier --write src/gen src/v2`
 await $`rm -rf dist tsconfig.tsbuildinfo`

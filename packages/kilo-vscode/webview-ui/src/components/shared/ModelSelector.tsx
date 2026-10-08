@@ -28,13 +28,13 @@ import { Icon } from "@kilocode/kilo-ui/icon"
 import { Tooltip } from "@kilocode/kilo-ui/tooltip"
 import { useProvider } from "../../context/provider"
 import type { EnrichedModel } from "../../context/provider"
+import { available as eligible } from "../../context/provider-utils"
 import { useSession, SessionContext } from "../../context/session"
 import { useLanguage } from "../../context/language"
 import { useVSCode } from "../../context/vscode"
 import type { ModelSelection } from "../../types/messages"
 import { isEnterKeyCommitNotIme } from "../../utils/ime-enter"
 import {
-  KILO_GATEWAY_ID,
   isSmall,
   providerSortKey,
   isFree,
@@ -235,7 +235,7 @@ export const ModelSelectorBase: Component<ModelSelectorBaseProps> = (props) => {
   // Only show models from Kilo Gateway or connected providers.
   // kilo-auto/small is excluded unless includeAutoSmall is explicitly true.
   const available = (m: EnrichedModel, c: string[]) =>
-    (props.includeAutoSmall || !isSmall(m)) && (m.providerID === KILO_GATEWAY_ID || c.includes(m.providerID))
+    (props.includeAutoSmall || !isSmall(m)) && eligible(m.providerID, c)
 
   const visibleModels = createMemo(() => {
     if (!open()) return []

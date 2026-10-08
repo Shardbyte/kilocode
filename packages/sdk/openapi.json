@@ -38163,7 +38163,7 @@
           },
           "source": {
             "type": "string",
-            "enum": ["env", "config", "custom", "api"]
+            "enum": ["env", "config", "custom", "api", "profile"]
           },
           "env": {
             "type": "array",

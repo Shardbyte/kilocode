@@ -2833,7 +2833,7 @@ export type Provider = {
   id: string
   name: string
   description?: string
-  source: "env" | "config" | "custom" | "api"
+  source: "env" | "config" | "custom" | "api" | "profile"
   env: Array<string>
   key?: string
   metadata?: {

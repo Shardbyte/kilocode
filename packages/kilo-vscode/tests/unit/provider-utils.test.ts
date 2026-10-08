@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { flattenModels, findModel, isModelValid } from "../../webview-ui/src/context/provider-utils"
+import { available, flattenModels, findModel, isModelValid } from "../../webview-ui/src/context/provider-utils"
 import type { Provider } from "../../webview-ui/src/types/messages"
 
 function makeProvider(id: string, name: string, modelIds: string[]): Provider {
@@ -99,5 +99,20 @@ describe("isModelValid", () => {
 
   it("rejects unknown models", () => {
     expect(isModelValid(providers, ["openai"], { providerID: "openai", modelID: "missing" })).toBe(false)
+  })
+})
+
+describe("shared selector and validation availability", () => {
+  it("uses backend availability independently of authentication source", () => {
+    for (const source of ["profile", "api", "env", "config", "custom"] as const) {
+      const providers = { openai: { ...makeProvider("openai", "OpenAI", ["gpt-5"]), source } }
+      for (const connected of [[], ["openai"]]) {
+        expect(available("openai", connected)).toBe(connected.length > 0)
+        expect(isModelValid(providers, connected, { providerID: "openai", modelID: "gpt-5" })).toBe(
+          available("openai", connected),
+        )
+      }
+    }
+    expect(available("kilo", [])).toBe(true)
   })
 })
