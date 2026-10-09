@@ -8,6 +8,7 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import type { Provider } from "@/provider/provider"
 import type { Plugin } from "@/plugin"
 import { CodexAuthPlugin } from "@/plugin/openai/codex"
+import { create } from "@/kilocode/provider/codex-diagnostic"
 import { makeFetch } from "@/kilocode/provider/codex-profile"
 import { LLMRequestPrep } from "@/session/llm/request"
 import { ProviderTransform } from "@/provider/transform"
@@ -43,7 +44,34 @@ test.each([
   { name: "build", replay: true },
   { name: "title", replay: false },
   { name: "branch-name", replay: true },
+  { name: "build", replay: false, luna: true },
 ])("preserves legacy/profile Codex wire parity for %s", async (scenario) => {
+  const chosen: Provider.Model = scenario.luna
+    ? {
+        ...model,
+        id: ModelV2.ID.make("gpt-6-luna"),
+        api: { ...model.api, id: "gpt-6-luna" },
+        name: "GPT-6 Luna",
+        release_date: "2026-09-22",
+      }
+    : model
+  if (scenario.luna)
+    chosen.variants = ProviderTransform.reasoningVariants(
+      {
+        id: "gpt-6-luna",
+        name: "GPT-6 Luna",
+        release_date: "2026-09-22",
+        attachment: true,
+        reasoning: true,
+        temperature: false,
+        tool_call: true,
+        limit: { context: 1_050_000, input: 922_000, output: 128_000 },
+        reasoning_options: [{ type: "effort", values: ["none", "low", "medium", "high", "xhigh", "max"] }],
+      },
+      chosen,
+    )
+  const reports: unknown[] = []
+  const observer = create({ profile: "fixture-profile", publish: (report) => reports.push(structuredClone(report)) })
   const original = globalThis.fetch
   const calls: Array<{ url: string; method: string; headers: Headers; body: Record<string, unknown> }> = []
   const request: typeof fetch = Object.assign(
@@ -82,21 +110,25 @@ test.each([
       RuntimeFlags.Service.pipe(Effect.provide(RuntimeFlags.layer({ client: "test" }))),
     )
     const dispatch: string[] = []
-    const profile = makeFetch("fixture-profile", {
-      refresh: async (id) => {
-        expect(id).toBe("fixture-profile")
+    const profile = makeFetch(
+      "fixture-profile",
+      {
+        refresh: async (id) => {
+          expect(id).toBe("fixture-profile")
+        },
+        dispatch: async (id, transport) => {
+          dispatch.push(id)
+          return {
+            response: transport(
+              { access: auth.access, refresh: auth.refresh, expires: auth.expires, accountID: auth.accountId },
+              0,
+            ),
+          }
+        },
+        request,
       },
-      dispatch: async (id, transport) => {
-        dispatch.push(id)
-        return {
-          response: transport(
-            { access: auth.access, refresh: auth.refresh, expires: auth.expires, accountID: auth.accountId },
-            0,
-          ),
-        }
-      },
-      request,
-    })
+      observer,
+    )
     for (const mode of ["legacy", "profile", "api"]) {
       const prepared = await Effect.runPromise(
         LLMRequestPrep.prepare({
@@ -106,10 +138,10 @@ test.each([
             role: "user",
             time: { created: 0 },
             agent: scenario.name,
-            model: { providerID: model.providerID, modelID: model.id },
+            model: { providerID: chosen.providerID, modelID: chosen.id, ...(scenario.luna ? { variant: "low" } : {}) },
           },
           sessionID: "ses_fixture",
-          model,
+          model: chosen,
           agent: { name: scenario.name, mode: "primary", options: {}, permission: [], prompt: "Fixture instruction" },
           system: [],
           messages: scenario.replay
@@ -153,7 +185,7 @@ test.each([
               }),
             }),
           },
-          provider: { id: model.providerID, name: "OpenAI", source: "custom", env: [], options: {}, models: {} },
+          provider: { id: chosen.providerID, name: "OpenAI", source: "custom", env: [], options: {}, models: {} },
           // LLM.run deliberately supplies no legacy auth for profile-bound requests.
           auth: mode === "legacy" ? auth : mode === "api" ? { type: "api", key: "fixture-api" } : undefined,
           oauth: mode === "profile",
@@ -168,14 +200,14 @@ test.each([
       })
       const result = streamText({
         model: wrapLanguageModel({
-          model: sdk.responses(model.api.id),
+          model: sdk.responses(chosen.api.id),
           middleware: {
             specificationVersion: "v3",
             transformParams: async ({ params }) => ({
               ...params,
               prompt: ProviderTransform.message(
                 params.prompt,
-                model,
+                chosen,
                 prepared.messageTransformOptions,
               ) as typeof params.prompt,
             }),
@@ -184,7 +216,7 @@ test.each([
         messages: prepared.messages,
         tools: prepared.tools,
         headers: prepared.headers,
-        providerOptions: ProviderTransform.providerOptions(model, prepared.params.options),
+        providerOptions: ProviderTransform.providerOptions(chosen, prepared.params.options),
         maxOutputTokens: prepared.params.maxOutputTokens,
         maxRetries: 0,
         allowSystemInMessages: true,
@@ -195,7 +227,7 @@ test.each([
         if (event.type !== "error") continue
         errors.push(event.error)
         const safe = KiloSessionProcessor.profileError(
-          MessageV2.fromError(event.error, { providerID: model.providerID }),
+          MessageV2.fromError(event.error, { providerID: chosen.providerID }),
         )
         expect(safe).toMatchObject({
           name: "APIError",
@@ -207,6 +239,10 @@ test.each([
       expect(errors).toHaveLength(1)
     }
     expect(calls).toHaveLength(3)
+    expect(JSON.stringify(reports)).toContain(`"model":"${chosen.api.id}"`)
+    expect(JSON.stringify(reports)).toContain(`"effort":"${scenario.luna ? "low" : "medium"}"`)
+    expect(JSON.stringify(reports)).not.toContain("fixture-access")
+    expect(JSON.stringify(reports)).not.toContain("Fixture instruction")
     expect(dispatch).toEqual(["fixture-profile"])
     for (const call of calls.slice(0, 2)) {
       expect(call.url).toBe("https://chatgpt.com/backend-api/codex/responses")
@@ -217,7 +253,7 @@ test.each([
       expect(call.headers.has("session-id")).toBe(true)
       expect(call.headers.has("user-agent")).toBe(true)
       expect(call.headers.get("content-type")).toContain("application/json")
-      expect(call.body).toMatchObject({ model: "gpt-5.4", stream: true, store: false })
+      expect(call.body).toMatchObject({ model: chosen.api.id, stream: true, store: false })
       expect(call.body.max_output_tokens).toBeUndefined()
     }
     const api = calls.at(2)!
@@ -237,7 +273,7 @@ test.each([
     expect(input.some((item) => item.role === "system" || item.role === "developer")).toBe(false)
     expect(input.at(0)).toMatchObject({ role: "user" })
     expect(bound.tools).toMatchObject([{ type: "function", name: "lookup", strict: false }])
-    expect(bound.reasoning).toMatchObject({ effort: "medium" })
+    expect(bound.reasoning).toMatchObject({ effort: scenario.luna ? "low" : "medium" })
     if (scenario.replay) {
       expect(input).toContainEqual(
         expect.objectContaining({ type: "reasoning", encrypted_content: "fixture_encrypted" }),
@@ -247,6 +283,7 @@ test.each([
     }
     expect([...calls.at(0)!.headers]).toEqual([...calls.at(1)!.headers])
   } finally {
+    observer.stop()
     globalThis.fetch = original
   }
 })
@@ -254,7 +291,7 @@ test.each([
 test("characterizes OAuth model filtering being skipped when only profile credentials exist", async () => {
   const hooks = await CodexAuthPlugin({} as PluginInput)
   const models = Object.fromEntries(
-    ["gpt-5.4", "gpt-4.1", "gpt-5.6", "gpt-5.5-pro"].map((id) => [
+    ["gpt-5.4", "gpt-4.1", "gpt-5.6", "gpt-5.5-pro", "gpt-6-luna"].map((id) => [
       id,
       { ...model, id: ModelV2.ID.make(id), api: { ...model.api, id } },
     ]),
@@ -264,7 +301,7 @@ test("characterizes OAuth model filtering being skipped when only profile creden
     auth: { type: "oauth", access: "fixture-access", refresh: "fixture-refresh", expires: Date.now() + 60_000 },
   })
   const profile = await hooks.provider!.models!(provider, { auth: undefined })
-  expect(Object.keys(legacy)).toEqual(["gpt-5.4"])
+  expect(Object.keys(legacy)).toEqual(["gpt-5.4", "gpt-6-luna"])
   expect(Object.keys(profile)).toEqual(Object.keys(models))
 })
 

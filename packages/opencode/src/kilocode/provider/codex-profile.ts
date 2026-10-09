@@ -3,6 +3,8 @@ import { ProviderAccountProfiles } from "@opencode-ai/core/kilocode/provider-acc
 import { extractAccountId, extractResidency, refreshAccessToken } from "@/plugin/openai/codex"
 import { OpenAIWebSocketPool } from "@/plugin/openai/ws-pool"
 
+import { lease } from "./codex-diagnostic"
+
 const endpoint = "https://chatgpt.com/backend-api/codex/responses"
 const api = "https://api.openai.com/v1/responses"
 const token = "https://auth.openai.com/oauth/token"
@@ -106,7 +108,7 @@ export async function refresh(
   )
 }
 
-export function makeFetch(id: string, ports: Ports): typeof globalThis.fetch {
+export function makeFetch(id: string, ports: Ports, observer = lease): typeof globalThis.fetch {
   const send = async (input: RequestInfo | URL, init?: RequestInit) => {
     const parsed = input instanceof URL ? input : new URL(typeof input === "string" ? input : input.url)
     const allowed =
@@ -133,15 +135,21 @@ export function makeFetch(id: string, ports: Ports): typeof globalThis.fetch {
         const residency = extractResidency(auth.access)
         if (residency) sendHeaders.set("x-openai-internal-codex-residency", residency)
       }
-      return ports.request(
-        url,
-        OpenAIWebSocketPool.withoutInternalHeaders({
-          ...init,
-          body: init?.body,
-          headers: sendHeaders,
-          redirect: "error",
-        }),
-      )
+      const options = OpenAIWebSocketPool.withoutInternalHeaders({
+        ...init,
+        body: init?.body,
+        headers: sendHeaders,
+        redirect: "error" as const,
+      })
+      const diagnostic = observer?.observe(id, options ?? {})
+      const response = ports.request(url, options)
+      if (diagnostic) {
+        void response.then(
+          (value) => diagnostic.response(value),
+          () => diagnostic.failure(),
+        )
+      }
+      return response
     })
     return result.response
   }
